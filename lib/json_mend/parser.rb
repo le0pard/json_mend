@@ -174,7 +174,7 @@ module JsonMend
 
         char = @scanner.peek(1)
         break if char.nil?
-        break if char == ',' && @context&.last == :array
+        break if char == ',' && current_context == :array
 
         break unless "0123456789-.eE/,".include?(char)
 
@@ -228,8 +228,8 @@ module JsonMend
 
         # Define terminators for line comments based on the current context
         terminators = '\n\r'
-        terminators += '\]' if @context&.last == :array
-        terminators += '\}' if @context&.last == :object
+        terminators += '\]' if current_context == :array
+        terminators += '\}' if current_context == :object
 
         # **FIX**: Line comments now correctly stop at context-specific terminators
         @scanner.scan(%r{//[^#{terminators}]*})
@@ -239,5 +239,10 @@ module JsonMend
         break if @scanner.pos == start_pos
       end
     end
+
+    def current_context
+      @context&.last
+    end
+
   end
 end
