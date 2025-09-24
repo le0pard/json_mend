@@ -16,39 +16,31 @@ module JsonMend
 
     # Kicks off the parsing process. This is a direct port of the robust Python logic.
     def parse
-      # Find and parse the first valid JSON value in the string.
-      first_value = parse_value_from_anywhere
-
-      # If the scanner is at the end after the first parse, we're done.
-      skip_whitespaces_and_comments
-      return first_value if @scanner.eos?
-
-      # If there's more, we're dealing with multiple concatenated JSON objects.
-      all_values = [first_value]
+      values = []
       loop do
         skip_whitespaces_and_comments
-        break if @scanner.eos?
-
-        # Try to parse the next value
-        next_val = parse_value_from_anywhere
-
-        if next_val.nil?
-          # If we failed to parse (i.e., we hit garbage),
-          # we must advance the scanner by one character to prevent an infinite loop.
-          @scanner.getch unless @scanner.eos?
-          next
+        # Actively look for the start of a JSON object or array, skipping garbage text.
+        start = @scanner.scan_until(/[{\[]/)
+        unless start
+          # Only try to parse a primitive if we haven't found any other values yet
+          if values.empty?
+            @scanner.reset
+            val = parse_value
+            values << val if val
+          end
+          break
         end
 
-        # This logic correctly handles aggregation vs. replacement.
-        if !all_values.empty? && same_object_type?(all_values.last, next_val)
-          all_values.pop # Replace the last item
-        end
-        all_values << next_val
+        @scanner.pos -= 1 # Rewind to include the '{' or '['
+
+        new_value = parse_value
+        next if new_value.nil?
+
+        values.pop if !values.empty? && same_object_type?(values.last, new_value)
+        values << new_value
       end
 
-      # Return a single value if only one was ultimately parsed, otherwise return the array.
-      all_values.compact!
-      all_values.length > 1 ? all_values : all_values.first
+      values.length > 1 ? values : values.first
     end
 
     private
@@ -70,6 +62,8 @@ module JsonMend
       when *STRING_DELIMITERS then parse_string
       when 't', 'f', 'n', 'T', 'F', 'N' then parse_literal
       when ->(c) { c&.between?('0', '9') || c == '-' || c == '.' } then parse_number
+      else
+        parse_unquoted_string
       end
     end
 
@@ -94,11 +88,11 @@ module JsonMend
         break unless key
 
         skip_whitespaces_and_comments
-        if @scanner.scan(':')
-          object[key.to_s] = parse_value
-        else
-          object[key.to_s] = true # Implicit true for keys without values
-        end
+        object[key.to_s] = if @scanner.scan(':')
+                             parse_value
+                           else
+                             true # Implicit true for keys without values
+                           end
         skip_whitespaces_and_comments
         break if @scanner.peek(1) == '}' || @scanner.eos?
 
@@ -139,14 +133,12 @@ module JsonMend
       array
     end
 
-    # Parses a string, handling both quoted and unquoted cases.
+    # Parses a quoted string.
     def parse_string
-      # Unquoted strings are not part of the JSON spec and are treated as garbage
-      # by the main parse_value dispatcher. This method only handles quoted strings.
       quote = @scanner.peek(1)
       return nil unless STRING_DELIMITERS.include?(quote)
 
-      @scanner.getch # consume opening quote
+      @scanner.getch
       buffer = +''
       loop do
         char = @scanner.getch
@@ -155,13 +147,57 @@ module JsonMend
         if char == '\\'
           buffer << char
           buffer << @scanner.getch unless @scanner.eos?
-        elsif char == quote
+        elsif (quote == '“' && char == '”') || char == quote
           return buffer
         else
           buffer << char
         end
       end
-      buffer # Unterminated string
+      buffer
+    end
+
+    # **FIXED**: Parses an unquoted string value robustly.
+    def parse_unquoted_string
+      buffer = +''
+      loop do
+        break if @scanner.eos?
+
+        char = @scanner.peek(1)
+
+        terminators = [',', '}', ']']
+        # A colon terminates a key, but can be part of a value
+        terminators << ':' if @context.last == :object
+
+        break if terminators.include?(char)
+
+        # Break on whitespace only if it's not between words
+        if char.strip.empty? && !buffer.empty?
+          # Peek ahead to see if the next non-whitespace char is a terminator
+          next_char_pos = @scanner.pos + 1
+          next_char_pos += 1 while @scanner.string[next_char_pos]&.strip&.empty?
+          next_non_ws = @scanner.string[next_char_pos]
+          break if next_non_ws.nil? || terminators.include?(next_non_ws)
+        elsif char.strip.empty?
+          break
+        end
+
+        buffer << @scanner.getch
+      end
+
+      literal = parse_literal_from_string(buffer)
+      return literal unless literal.nil?
+
+      buffer.strip
+    end
+
+    # Parses true, false, or null from a string (for unquoted values).
+    def parse_literal_from_string(str)
+      s = str.strip.downcase
+      case s
+      when 'true' then true
+      when 'false' then false
+      when 'null' then nil
+      end
     end
 
     # Parses a number (integer or float).
@@ -176,13 +212,13 @@ module JsonMend
         break if char.nil?
         break if char == ',' && current_context == :array
 
-        break unless "0123456789-.eE/,".include?(char)
+        break unless '0123456789-.eE/,'.include?(char)
 
         number_result << @scanner.getch
       end
 
       # Roll back if the string ends with an invalid character
-      if !number_result.empty? && "-eE/,".include?(number_result[-1])
+      if !number_result.empty? && '-eE/,'.include?(number_result[-1])
         number_result.pop
         @scanner.pos -= 1
       end
@@ -197,15 +233,17 @@ module JsonMend
 
       # Attempt to convert to a number, falling back to a string if it fails
       begin
-        if number_result.include?('/') || number_result.filter { it == '.' }.length > 1 || number_result.filter { it == '-' }.length > 1
-          return number_result.join&.to_s # Treat as a string
+        if number_result.include?('/') || number_result.count { it == '.' } > 1 || number_result.count do
+          it == '-'
+        end > 1
+          number_result.join&.to_s # Treat as a string
         elsif number_result.include?('.') || number_result.find { it&.downcase == 'e' }
-          return Float(number_result.join)
+          Float(number_result.join)
         else
-          return Integer(number_result.join)
+          Integer(number_result.join)
         end
       rescue ArgumentError
-        return number_result.join
+        number_result.join
       end
     end
 
@@ -226,16 +264,24 @@ module JsonMend
         start_pos = @scanner.pos
         @scanner.scan(/\s+/)
 
-        # Define terminators for line comments based on the current context
-        terminators = '\n\r'
-        terminators += '\]' if current_context == :array
-        terminators += '\}' if current_context == :object
+        if @scanner.check(%r{/[/*#]})
+          if @scanner.check(%r{/\*})
+            @scanner.scan_until(%r{\*/})
+          elsif @scanner.scan(%r{//}) || @scanner.scan('#')
+            loop do
+              char = @scanner.peek(1)
+              break if char.nil?
 
-        # **FIX**: Line comments now correctly stop at context-specific terminators
-        @scanner.scan(%r{//[^#{terminators}]*})
-        @scanner.scan(/#[^#{terminators}]*/)
-        @scanner.scan(%r{/\*.*?\*/})
+              terminators = ["\n", "\r"]
+              terminators << '}' if current_context == :object
+              terminators << ']' if current_context == :array
+              terminators << ',' # A comma can also terminate a comment
+              break if terminators.include?(char)
 
+              @scanner.getch
+            end
+          end
+        end
         break if @scanner.pos == start_pos
       end
     end
@@ -243,6 +289,5 @@ module JsonMend
     def current_context
       @context&.last
     end
-
   end
 end
