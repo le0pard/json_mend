@@ -166,5 +166,42 @@ RSpec.describe JsonMend do
         end
       end
     end
+
+    context 'when have comments in json' do
+      [
+        {
+          input: '/',
+          expected_output: ''
+        },
+        {
+          input: '/* comment */ {"key": "value"}',
+          expected_output: JSON.dump({ key: 'value' })
+        },
+        {
+          input: '{ "key": { "key2": "value2" // comment }, "key3": "value3" }',
+          expected_output: JSON.dump({ key: { key2: 'value2' }, key3: 'value3' })
+        },
+        {
+          input: '{ "key": { "key2": "value2" # comment }, "key3": "value3" }',
+          expected_output: JSON.dump({ key: { key2: 'value2' }, key3: 'value3' })
+        },
+        {
+          input: '{ "key": { "key2": "value2" /* comment */ }, "key3": "value3" }',
+          expected_output: JSON.dump({ key: { key2: 'value2' }, key3: 'value3' })
+        },
+        {
+          input: '[ "value", /* comment */ "value2" ]',
+          expected_output: JSON.dump(%w[value value2])
+        },
+        {
+          input: '{ "key": "value" /* comment',
+          expected_output: JSON.dump({ key: 'value' })
+        }
+      ].each do |test_case|
+        it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do
+          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
   end
 end

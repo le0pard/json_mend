@@ -11,6 +11,7 @@ module JsonMend
 
     def initialize(json_string)
       @scanner = StringScanner.new(json_string)
+      @context = []
     end
 
     # Kicks off the parsing process. This is a direct port of the robust Python logic.
@@ -32,7 +33,7 @@ module JsonMend
         next_val = parse_value
 
         if next_val.nil?
-          # **CRITICAL FIX**: If we failed to parse (i.e., we hit garbage),
+          # If we failed to parse (i.e., we hit garbage),
           # we must advance the scanner by one character to prevent an infinite loop.
           @scanner.getch unless @scanner.eos?
           next
@@ -60,11 +61,7 @@ module JsonMend
       when '[' then parse_array
       when *STRING_DELIMITERS then parse_string
       when 't', 'f', 'n', 'T', 'F', 'N' then parse_literal
-      when ->(c) { c && (c >= '0' && c <= '9') || c == '-' } then parse_number
-      else
-        # If the next character cannot start a valid JSON value, it's garbage.
-        # We return nil, and the main loop will advance the scanner.
-        nil
+      when ->(c) { c&.between?('0', '9') || c == '-' } then parse_number
       end
     end
 
@@ -76,9 +73,12 @@ module JsonMend
     # Parses a JSON object.
     def parse_object
       @scanner.getch # Consume '{'
+      @context.push(:object)
+
       object = {}
       loop do
         skip_whitespaces_and_comments
+
         break if @scanner.peek(1) == '}' || @scanner.eos?
 
         key = parse_value
@@ -98,12 +98,14 @@ module JsonMend
         @scanner.scan(',')
       end
       @scanner.scan(/}/)
+      @context.pop
       object
     end
 
     # Parses a JSON array.
     def parse_array
       @scanner.getch # Consume '['
+      @context.push(:array)
       array = []
       loop do
         skip_whitespaces_and_comments
@@ -126,6 +128,7 @@ module JsonMend
         @scanner.scan(',')
       end
       @scanner.scan(/]/)
+      @context.pop
       array
     end
 
@@ -182,10 +185,18 @@ module JsonMend
     def skip_whitespaces_and_comments
       loop do
         start_pos = @scanner.pos
-        @scanner.scan(/\s+/) # Whitespace
-        @scanner.scan(%r{//.*}) # Single line comment
-        @scanner.scan(%r{/\*.*?\*/}) # Multi-line comment
-        @scanner.scan(/#.*/) # Python-style comment
+        @scanner.scan(/\s+/)
+
+        # Define terminators for line comments based on the current context
+        terminators = '\n\r'
+        terminators += '\]' if @context&.last == :array
+        terminators += '\}' if @context&.last == :object
+
+        # **FIX**: Line comments now correctly stop at context-specific terminators
+        @scanner.scan(%r{//[^#{terminators}]*})
+        @scanner.scan(/#[^#{terminators}]*/)
+        @scanner.scan(%r{/\*.*?\*/})
+
         break if @scanner.pos == start_pos
       end
     end
