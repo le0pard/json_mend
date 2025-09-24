@@ -60,8 +60,8 @@ module JsonMend
       when '{' then parse_object
       when '[' then parse_array
       when *STRING_DELIMITERS then parse_string
-      when 't', 'f', 'n', 'T', 'F', 'N' then parse_literal
       when ->(c) { c&.between?('0', '9') || c == '-' || c == '.' } then parse_number
+      when 't', 'f', 'n', 'T', 'F', 'N' then parse_literal
       else
         parse_unquoted_string
       end
@@ -263,21 +263,17 @@ module JsonMend
       loop do
         start_pos = @scanner.pos
         @scanner.scan(/\s+/)
-
         if @scanner.check(%r{/[/*#]})
           if @scanner.check(%r{/\*})
             @scanner.scan_until(%r{\*/})
-          elsif @scanner.scan(%r{//}) || @scanner.scan('#')
+          elsif @scanner.scan(%r{//}) || @scanner.scan(/#/)
             loop do
               char = @scanner.peek(1)
               break if char.nil?
-
               terminators = ["\n", "\r"]
-              terminators << '}' if current_context == :object
-              terminators << ']' if current_context == :array
-              terminators << ',' # A comma can also terminate a comment
+              terminators << "}" if current_context == :object
+              terminators << "]" if current_context == :array
               break if terminators.include?(char)
-
               @scanner.getch
             end
           end
