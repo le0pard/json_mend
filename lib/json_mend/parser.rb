@@ -95,8 +95,7 @@ module JsonMend
 
         skip_whitespaces_and_comments
         if @scanner.scan(':')
-          value = parse_value
-          object[key.to_s] = value
+          object[key.to_s] = parse_value
         else
           object[key.to_s] = true # Implicit true for keys without values
         end

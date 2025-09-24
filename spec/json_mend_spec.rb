@@ -248,8 +248,12 @@ RSpec.describe JsonMend do
           expected_output: JSON.dump([105, 12])
         },
         {
+          input: '{"key": 105,12,',
+          expected_output: JSON.dump({ key: 105.12 })
+        },
+        {
           input: '{"key", 105,12,',
-          expected_output: JSON.dump({ key: '105,12' })
+          expected_output: JSON.dump({ key: true, '105,12': true })
         },
         {
           input: '{"key": 1/3, "foo": "bar"}',
