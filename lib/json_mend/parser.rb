@@ -166,7 +166,7 @@ module JsonMend
 
     # Parses a number (integer or float).
     def parse_number
-      number_str = +''
+      number_result = []
 
       # Greedily consume all characters that could be part of a number or number-like string
       loop do
@@ -178,47 +178,44 @@ module JsonMend
 
         break unless "0123456789-.eE/,".include?(char)
 
-        number_str << @scanner.getch
+        number_result << @scanner.getch
       end
 
       # Roll back if the string ends with an invalid character
-      if !number_str.empty? && "-eE/,".include?(number_str[-1])
-        number_str.chop!
+      if !number_result.empty? && "-eE/,".include?(number_result[-1])
+        number_result.pop
         @scanner.pos -= 1
       end
 
-      return nil if number_str.empty?
+      return nil if number_result.empty?
 
       # If the number is immediately followed by other characters, it's part of a string
       if @scanner.check(/[a-zA-Z]/)
-        number_str << @scanner.scan(/[a-zA-Z0-9]*/)
-        return number_str
+        number_result << @scanner.scan(/[a-zA-Z0-9]*/)
+        return number_result.join
       end
 
       # Attempt to convert to a number, falling back to a string if it fails
       begin
-        if number_str.include?('/') || number_str.count('.') > 1 || number_str.count('-') > 1
-          return number_str # Treat as a string
-        elsif number_str.include?('.') || number_str.downcase.include?('e')
-          return Float(number_str)
+        if number_result.include?('/') || number_result.filter { it == '.' }.length > 1 || number_result.filter { it == '-' }.length > 1
+          return number_result.join&.to_s # Treat as a string
+        elsif number_result.include?('.') || number_result.find { it&.downcase == 'e' }
+          return Float(number_result.join)
         else
-          return Integer(number_str)
+          return Integer(number_result.join)
         end
       rescue ArgumentError
-        return number_str
+        return number_result.join
       end
     end
 
     # Parses true, false, or null from the scanner.
     def parse_literal
-      if @scanner.check(/true/i)
-        @scanner.scan(/true/i)
+      if @scanner.scan(/true/i)
         true
-      elsif @scanner.check(/false/i)
-        @scanner.scan(/false/i)
+      elsif @scanner.scan(/false/i)
         false
-      elsif @scanner.check(/null/i)
-        @scanner.scan(/null/i)
+      elsif @scanner.scan(/null/i)
         nil
       end
     end
