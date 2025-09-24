@@ -203,5 +203,91 @@ RSpec.describe JsonMend do
         end
       end
     end
+
+    context 'when provided json with numbers and return object' do
+      [
+        {
+          input: '1',
+          expected_output: 1
+        },
+        {
+          input: '1.2',
+          expected_output: 1.2
+        }
+      ].each do |test_case|
+        it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do
+          expect(described_class.repair(test_case[:input], return_objects: true)).to eq(test_case[:expected_output])
+        end
+      end
+    end
+
+    context 'when provided json with numbers' do
+      [
+        {
+          input: ' - { "test_key": ["test_value", "test_value2"] }',
+          expected_output: JSON.dump({ test_key: %w[test_value test_value2] })
+        },
+        {
+          input: '{"key": 1/3}',
+          expected_output: JSON.dump({ key: '1/3' })
+        },
+        {
+          input: '{"key": .25}',
+          expected_output: JSON.dump({ key: 0.25 })
+        },
+        {
+          input: '{"here": "now", "key": 1/3, "foo": "bar"}',
+          expected_output: JSON.dump({ here: 'now', key: '1/3', foo: 'bar' })
+        },
+        {
+          input: '{"key": 12345/67890}',
+          expected_output: JSON.dump({ key: '12345/67890' })
+        },
+        {
+          input: '[105,12',
+          expected_output: JSON.dump([105, 12])
+        },
+        {
+          input: '{"key", 105,12,',
+          expected_output: JSON.dump({ key: '105,12' })
+        },
+        {
+          input: '{"key": 1/3, "foo": "bar"}',
+          expected_output: JSON.dump({ key: '1/3', foo: 'bar' })
+        },
+        {
+          input: '{"key": 10-20}',
+          expected_output: JSON.dump({ key: '10-20' })
+        },
+        {
+          input: '{"key": 1.1.1}',
+          expected_output: JSON.dump({ key: '1.1.1' })
+        },
+        {
+          input: '{"key": 1. }',
+          expected_output: JSON.dump({ key: 1.0 })
+        },
+        {
+          input: '{"key": 1e10 }',
+          expected_output: JSON.dump({ key: 10_000_000_000.0 })
+        },
+        {
+          input: '{"key": 1e }',
+          expected_output: JSON.dump({ key: 1 })
+        },
+        {
+          input: '{"key": 1notanumber }',
+          expected_output: JSON.dump({ key: '1notanumber' })
+        },
+        {
+          input: '[1, 2notanumber]',
+          expected_output: JSON.dump([1, '2notanumber'])
+        }
+      ].each do |test_case|
+        it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do
+          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
   end
 end

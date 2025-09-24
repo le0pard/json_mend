@@ -17,7 +17,7 @@ module JsonMend
     # Kicks off the parsing process. This is a direct port of the robust Python logic.
     def parse
       # Find and parse the first valid JSON value in the string.
-      first_value = parse_value
+      first_value = parse_value_from_anywhere
 
       # If the scanner is at the end after the first parse, we're done.
       skip_whitespaces_and_comments
@@ -30,7 +30,7 @@ module JsonMend
         break if @scanner.eos?
 
         # Try to parse the next value
-        next_val = parse_value
+        next_val = parse_value_from_anywhere
 
         if next_val.nil?
           # If we failed to parse (i.e., we hit garbage),
@@ -53,6 +53,14 @@ module JsonMend
 
     private
 
+    def parse_value_from_anywhere
+      start = @scanner.scan_until(/[\[{"'\d\-.\\tfcnTFN]/)
+      return nil unless start
+
+      @scanner.pos -= 1 # Rewind to include the valid starting character
+      parse_value
+    end
+
     # Main dispatcher for parsing any JSON value.
     def parse_value
       skip_whitespaces_and_comments
@@ -61,7 +69,7 @@ module JsonMend
       when '[' then parse_array
       when *STRING_DELIMITERS then parse_string
       when 't', 'f', 'n', 'T', 'F', 'N' then parse_literal
-      when ->(c) { c&.between?('0', '9') || c == '-' } then parse_number
+      when ->(c) { c&.between?('0', '9') || c == '-' || c == '.' } then parse_number
       end
     end
 
@@ -159,12 +167,47 @@ module JsonMend
 
     # Parses a number (integer or float).
     def parse_number
-      num_str = @scanner.scan(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/)
-      return nil unless num_str
-      # If a number is followed by text, it's not a valid JSON number.
-      return nil if @scanner.check(/[a-zA-Z]/)
+      number_str = +''
 
-      num_str.include?('.') || num_str.downcase.include?('e') ? num_str.to_f : num_str.to_i
+      # Greedily consume all characters that could be part of a number or number-like string
+      loop do
+        break if @scanner.eos?
+
+        char = @scanner.peek(1)
+        break if char.nil?
+        break if char == ',' && @context&.last == :array
+
+        break unless "0123456789-.eE/,".include?(char)
+
+        number_str << @scanner.getch
+      end
+
+      # Roll back if the string ends with an invalid character
+      if !number_str.empty? && "-eE/,".include?(number_str[-1])
+        number_str.chop!
+        @scanner.pos -= 1
+      end
+
+      return nil if number_str.empty?
+
+      # If the number is immediately followed by other characters, it's part of a string
+      if @scanner.check(/[a-zA-Z]/)
+        number_str << @scanner.scan(/[a-zA-Z0-9]*/)
+        return number_str
+      end
+
+      # Attempt to convert to a number, falling back to a string if it fails
+      begin
+        if number_str.include?('/') || number_str.count('.') > 1 || number_str.count('-') > 1
+          return number_str # Treat as a string
+        elsif number_str.include?('.') || number_str.downcase.include?('e')
+          return Float(number_str)
+        else
+          return Integer(number_str)
+        end
+      rescue ArgumentError
+        return number_str
+      end
     end
 
     # Parses true, false, or null from the scanner.
