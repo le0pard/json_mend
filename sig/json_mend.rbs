@@ -1,0 +1,5 @@
+module JsonMend
+  VERSION: String
+
+  def self.repair: (String, ?return_objects: bool) -> String | _JSONValue | nil
+end

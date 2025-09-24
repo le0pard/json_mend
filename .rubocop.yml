@@ -1,0 +1,57 @@
+plugins:
+  - rubocop-performance
+  - rubocop-rspec
+
+AllCops:
+  NewCops: enable
+  SuggestExtensions: false
+
+Metrics/AbcSize:
+  Max: 30
+
+Metrics/ClassLength:
+  Max: 130
+
+Metrics/CyclomaticComplexity:
+  Max: 10
+
+Metrics/MethodLength:
+  Max: 30
+
+Metrics/PerceivedComplexity:
+  Max: 10
+
+Naming/PredicateMethod:
+  Enabled: false
+  AllowBangMethods: true
+
+Style/FrozenStringLiteralComment:
+  Enabled: true
+  EnforcedStyle: always
+
+Style/ArgumentsForwarding:
+  Enabled: true
+
+Style/SymbolArray:
+  EnforcedStyle: percent
+
+Layout/LineLength:
+  Max: 120
+  AllowedPatterns: ['^ *# '] # allow longer comments
+  Enabled: true
+
+Style/StringLiterals:
+  EnforcedStyle: single_quotes
+
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: single_quotes
+
+Style/SpecialGlobalVars:
+  EnforcedStyle: use_perl_names
+
+Style/HashSyntax:
+  EnforcedStyle: ruby19
+  EnforcedShorthandSyntax: always
+
+RSpec/NamedSubject:
+  EnforcedStyle: named_only
