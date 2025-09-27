@@ -42,7 +42,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"key": "value\u263a"}',
-          expected_output: JSON.dump({ key: 'value\\u263a' })
+          expected_output: JSON.dump({ key: 'value☺' })
         },
         {
           input: '{"key": "value\\nvalue"}',
@@ -91,7 +91,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"key": "value\u263a"}',
-          expected_output: JSON.dump({ key: 'value\\u263a' })
+          expected_output: JSON.dump({ key: 'value☺' })
         },
         {
           input: '{"key": "value\\nvalue"}',

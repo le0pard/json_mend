@@ -329,7 +329,7 @@ module JsonMend
             next_chars = @scanner.peek(num_chars + 1)[1..]
 
             if next_chars.length == num_chars && next_chars.chars.all? { |c| '0123456789abcdefABCDEF'.include?(c) }
-              string_acc = string_acc.chop + next_chars.to_i(16).chr
+              string_acc = string_acc.chop + next_chars.to_i(16).chr('UTF-8')
               @scanner.pos += num_chars + 1
               char = @scanner.peek(1)
               next
