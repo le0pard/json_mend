@@ -42,7 +42,7 @@ module JsonMend
     private
 
     def parse_json
-      while !@scanner.eos?
+      until @scanner.eos?
         case @scanner.peek(1)
         when '{'
           @scanner.getch # consume '{'
@@ -192,8 +192,9 @@ module JsonMend
         end
 
         char = @scanner.peek(1)
-        while !@scanner.eos? && char != "]" && (char.match?(/\s/) or char == ",")
-          char = @scanner.getch
+        while char && char != "]" && (char.match?(/\s/) or char == ",")
+          @scanner.getch
+          char = @scanner.peek(1)
         end
       end
 
@@ -217,8 +218,9 @@ module JsonMend
       return parse_comment if ['#', '/'].include?(char)
 
       # A valid string can only start with a valid quote or, in our case, with a literal
-      while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char.match?(/[a-zA-Z0-9]/)
-        char = @scanner.getch
+      while char && !STRING_DELIMITERS.include?(char) && !char.match?(/[a-zA-Z0-9]/)
+        @scanner.getch
+        char = @scanner.peek(1)
       end
 
       return '' if @scanner.eos?
@@ -523,13 +525,14 @@ module JsonMend
       # The set of valid characters for a number depends on the context.
       # Inside an array, a comma terminates the number.
       number_str = +''
-      char = @scanner.getch
+      char = @scanner.peek(1)
 
-      while !@scanner.eos? && NUMBER_CHARS.include?(char) && (
+      while char && NUMBER_CHARS.include?(char) && (
         !(current_context == :array) || char != ","
       )
         number_str << char
-        char = @scanner.getch
+        @scanner.getch # Consume the character
+        char = @scanner.peek(1) # Peek at the next character for the next iteration
       end
 
       # Handle cases where the number ends with an invalid character.
