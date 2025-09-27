@@ -2,12 +2,14 @@
 
 require 'strscan'
 require 'json'
+require 'set'
 
 # Root module
 module JsonMend
   # The core parser that does the heavy lifting of fixing the JSON.
   class Parser
     COMMENT_DELIMETERS = ['#', '/'].freeze
+    NUMBER_CHARS = Set.new("0123456789-.eE/,".chars).freeze
     STRING_DELIMITERS = ['"', "'", '“', '”'].freeze
 
     def initialize(json_string)
@@ -63,7 +65,7 @@ module JsonMend
     # Parses a JSON object.
     def parse_object
       object = {}
-      while @scanner.peek(1) != '}' && !@scanner.eos?
+      while !@scanner.scan('}') && !@scanner.eos?
         skip_whitespaces
 
         # Sometimes LLMs do weird things, if we find a ":" so early, we'll change it to "," and move on
@@ -141,15 +143,11 @@ module JsonMend
         skip_whitespaces
       end
 
-      @scanner.getch # consume '}'
-
       return object unless @context.empty? # Don't do this in a nested context
 
       skip_whitespaces
 
-      return object if @scanner.peek(1) != ','
-
-      @scanner.getch # consume ','
+      return object unless @scanner.scan(',')
 
       skip_whitespaces
       return object unless STRING_DELIMITERS.include?(@scanner.peek(1))
@@ -168,40 +166,35 @@ module JsonMend
     def parse_array
       arr = []
       @context.push(:array)
+      char = @scanner.peek(1)
       # Stop when you find the closing bracket or an invalid character like '}'
-      while !@scanner.eos? && !@scanner.scan(/[\]}]/)
+      while !@scanner.eos? && !["]", "}"].include?(char)
         skip_whitespaces
-        current_char = @scanner.peek(1)
-        # If we find the end of the array after skipping whitespace, break.
-        break if current_char.nil? || [']', '}'].include?(current_char)
 
-        value = nil
-        # Special case: An LLM might forget to open an object with '{'.
-        # If we see a string, we peek ahead to see if it's followed by a ':'
-        # to decide if we should parse an object instead of just a string.
-        if STRING_DELIMITERS.include?(current_char)
-          # This regex checks for a complete, quoted string followed by optional whitespace and a colon.
-          # It correctly handles escaped quotes within the string.
-          is_object_key_ahead = @scanner.check(/"[^"\\]*(?:\\.[^"\\]*)*"\s*:|'[^'\\]*(?:\\.[^'\\]*)*'\s*:/)
-          value = is_object_key_ahead ? parse_object : parse_string
+        value = ''
+        if STRING_DELIMITERS.include?(char)
+          # Sometimes it can happen that LLMs forget to start an object and then you think it's a string in an array
+          # So we are going to check if this string is followed by a : or not
+          # And either parse the string or parse the object
+          i = 1
+          i = skip_to_character(char, start_idx: i)
+          i = skip_whitespaces_at(start_idx: i + 1)
+          value = (@scanner.string[@scanner.pos + i] == ":" ? parse_object : parse_string)
         else
           value = parse_json
         end
 
-        is_empty = value.nil? || (value.respond_to?(:empty?) && value.empty?)
-
-        if is_empty
-          # If parse_value returns nothing valid, advance past the character.
-          @scanner.getch unless @scanner.eos?
-        elsif value == '...' && @scanner.string[@scanner.pos - 1] == '.'
-          # While parsing an array, found a stray '...'; ignoring it
+        if is_strictly_empty(value)
+          @scanner.getch
+        elsif value == "..." && @scanner.string[-1] == "."
         else
           arr << value
         end
 
-        # Skip over whitespace and an optional comma before the next value
-        skip_whitespaces
-        @scanner.scan(',')
+        char = @scanner.peek(1)
+        while !@scanner.eos? && char != "]" && (char.match?(/\s/) or char == ",")
+          char = @scanner.getch
+        end
       end
 
       # Handle a potentially missing closing bracket, a common LLM error.
@@ -528,18 +521,21 @@ module JsonMend
     def parse_number
       # The set of valid characters for a number depends on the context.
       # Inside an array, a comma terminates the number.
+      number_str = +''
+      char = @scanner.getch
       is_array = current_context == :array
-      number_regex = is_array ? /[0-9\-eE.]+/ : /[0-9\-eE.,]+/
 
-      # Scan for a sequence of characters that could form a number.
-      number_str = @scanner.scan(number_regex)
-      return '' unless number_str
+      while !@scanner.eos? && NUMBER_CHARS.include?(char) && (
+        !is_array || char != ","
+      )
+        number_str << char
+        char = @scanner.getch
+      end
 
       # Handle cases where the number ends with an invalid character.
-      if /[-eE,]\z/.match?(number_str)
-        # Roll back one character in both the string and the scanner.
+      if number_str && /[-eE,]\z/.match?(number_str)
         number_str.chop!
-        @scanner.unscan
+        @scanner.pos -= 1
       # Handle cases where what looked like a number is actually a string.
       # e.g., "123-abc"
       elsif @scanner.peek(1)&.match?(/[a-zA-Z]/)
@@ -548,13 +544,12 @@ module JsonMend
         return parse_string
       end
 
-      # If the string contains a comma, treat it as a string literal (e.g., currency).
-      return number_str if number_str.include?(',')
-
       # Attempt to convert the string to the appropriate number type.
       # Use rescue to handle conversion errors gracefully, returning the original string.
       begin
-        if number_str.match?(/[\.eE]/i)
+        if number_str.include?(',')
+          return number_str.to_s
+        elsif number_str.match?(/[\.eE]/)
           Float(number_str)
         else
           Integer(number_str)
@@ -673,6 +668,11 @@ module JsonMend
     # Helper to check if two objects are of the same container type (Array or Hash).
     def same_object_type?(obj1, obj2)
       (obj1.is_a?(Array) && obj2.is_a?(Array)) || (obj1.is_a?(Hash) && obj2.is_a?(Hash))
+    end
+
+    def is_strictly_empty(value)
+      # Check if the value is a container AND if it's empty.
+      [String, Array, Hash, Set].any? { |klass| value.is_a?(klass) } && value.empty?
     end
 
     # Skips whitespaces
