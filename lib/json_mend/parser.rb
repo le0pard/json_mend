@@ -138,6 +138,8 @@ module JsonMend
         @context.pop
         object[key] = value
 
+        skip_whitespaces
+
         # Consume trailing comma or quotes.
         @scanner.scan(/[,'"]/)
         skip_whitespaces
@@ -295,6 +297,7 @@ module JsonMend
         if missing_quotes
           break if current_context == :object_key && (char == ':' || char.match?(/\s/))
           break if current_context == :array && [']', ','].include?(char)
+          break if current_context == :object_value && [',', '}'].include?(char)
         end
 
         if char == ']' && @context.include?(:array) && string_acc[-1] != rstring_delimiter
