@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'strscan'
-require 'json'
 require 'set'
 
 # Root module
@@ -29,7 +28,7 @@ module JsonMend
             json.pop if same_object_type?(json.last, j)
             json << j
           else
-            @scanner.getch
+            @scanner.pos += 1
           end
         end
 
@@ -45,10 +44,10 @@ module JsonMend
       until @scanner.eos?
         case @scanner.peek(1)
         when '{'
-          @scanner.getch # consume '{'
+          @scanner.pos += 1 # consume '{'
           return parse_object
         when '['
-          @scanner.getch # consume '['
+          @scanner.pos += 1 # consume '['
           return parse_array
         when ->(c) { STRING_DELIMITERS.include?(c) || c&.match?(/[a-zA-Z]/) }
           return parse_string
@@ -57,7 +56,7 @@ module JsonMend
         when *COMMENT_DELIMETERS
           return parse_comment
         else
-          @scanner.getch
+          @scanner.pos += 1
         end
       end
     end
@@ -87,7 +86,7 @@ module JsonMend
           if key.empty? && @scanner.peek(1) == '['
             prev_key = object.keys.last
             if prev_key && obj[prev_key].is_a?(Array)
-              @scanner.getch # consume '['
+              @scanner.pos += 1 # consume '['
               new_array = parse_array
               if new_array.is_a?(Array)
                 to_merge = new_array.length == 1 && new_array[0].is_a?(Array) ? new_array[0] : new_array
@@ -187,7 +186,7 @@ module JsonMend
         end
 
         if is_strictly_empty(value)
-          @scanner.getch
+          @scanner.pos += 1
         elsif value == "..." && @scanner.string[-1] == "."
         else
           arr << value
@@ -195,7 +194,7 @@ module JsonMend
 
         char = @scanner.peek(1)
         while char && char != "]" && (char.match?(/\s/) or char == ",")
-          @scanner.getch
+          @scanner.pos += 1
           char = @scanner.peek(1)
         end
       end
@@ -221,7 +220,7 @@ module JsonMend
 
       # A valid string can only start with a valid quote or, in our case, with a literal
       while char && !STRING_DELIMITERS.include?(char) && !char.match?(/[a-zA-Z0-9]/)
-        @scanner.getch
+        @scanner.pos += 1
         char = @scanner.peek(1)
       end
 
@@ -245,7 +244,7 @@ module JsonMend
         missing_quotes = true
       end
 
-      @scanner.getch unless missing_quotes
+      @scanner.pos += 1 unless missing_quotes
 
       # There is sometimes a weird case of doubled quotes, we manage this also later in the while loop
       if STRING_DELIMITERS.include?(@scanner.peek(1)) && @scanner.peek(1) == lstring_delimiter
@@ -256,7 +255,7 @@ module JsonMend
         ) || (
           current_context == :object_value && [",", "}"].include?(next_value)
         )
-          @scanner.getch
+          @scanner.pos += 1
           return ''
         elsif next_value == lstring_delimiter
           # There's something fishy about this, we found doubled quotes and then again quotes
@@ -268,16 +267,16 @@ module JsonMend
 
         if next_c && @scanner.string[@scanner.pos + i + 1] == rstring_delimiter
           doubled_quotes = true
-          @scanner.getch
+          @scanner.pos += 1
         else
           # Ok this is not a doubled quote, check if this is an empty string or not
           i = skip_whitespaces_at(start_idx: 1)
           next_c = @scanner.string[@scanner.pos + i]
           if [*STRING_DELIMITERS, '{', '['].include?(next_c)
-            @scanner.getch
+            @scanner.pos += 1
             return ''
           elsif ![',', ']', '}'].include?(next_c)
-            @scanner.getch
+            @scanner.pos += 1
           end
         end
       end
@@ -290,7 +289,7 @@ module JsonMend
       # * It finds a closing quote
       # * It iterated over the entire sequence
       # * If we are fixing missing quotes in an object, when it finds the special terminators
-      char = @scanner.getch
+      char = @scanner.peek(1)
       unmatched_delimiter = false
       # --- Main Parsing Loop ---
       while !@scanner.eos? && char != rstring_delimiter
@@ -307,34 +306,38 @@ module JsonMend
         end
 
         string_acc << char
-        char = @scanner.getch
+        @scanner.pos += 1 # Consume the character
+        char = @scanner.peek(1)
         if !@scanner.eos? && string_acc[-1] == "\\"
           # This is a special case, if people use real strings this might happen
           if [rstring_delimiter, 't', 'n', 'r', 'b', '\\'].include?(char)
             string_acc = string_acc.chop
             escape_seqs = { t: "\t", n: "\n", r: "\r", b: "\b" }
             string_acc << escape_seqs.fetch(char, char)
-            char = @scanner.getch
+            @scanner.pos += 1 # Consume the character
+            char = @scanner.peek(1)
             while char && string_acc[-1] == '\\' && [rstring_delimiter, '\\'].include?(char)
               # this is a bit of a special case, if I don't do this it will close the loop or create a train of \\
               # I don't love it though
               string_acc = string_acc.chop + char
-              char = @scanner.getch
+              @scanner.pos += 1 # Consume the character
+              char = @scanner.peek(1)
             end
             next
           elsif ['u', 'x'].include?(char)
             num_chars = (char == 'u' ? 4 : 2)
             next_chars = @scanner.peek(num_chars + 1)[1..]
 
-            if next_chars.length == num_chars && next_chars.all? { |c| '0123456789abcdefABCDEF'.include?(c) }
+            if next_chars.length == num_chars && next_chars.chars.all? { |c| '0123456789abcdefABCDEF'.include?(c) }
               string_acc = string_acc.chop + next_chars.to_i(16).chr
               @scanner.pos += num_chars + 1
-              char = @scanner.getch
+              char = @scanner.peek(1)
               next
             end
           elsif STRING_DELIMITERS.include?(char) && char != rstring_delimiter
             string_acc = string_acc.chop + char
-            char = @scanner.getch
+            @scanner.pos += 1 # Consume the character
+            char = @scanner.peek(1)
             next
           end
         end
@@ -361,7 +364,7 @@ module JsonMend
 
         if (char == rstring_delimiter) && (string_acc[-1] != '\\')
           if doubled_quotes && @scanner.peek(1) == rstring_delimiter
-            @scanner.getch
+            @scanner.pos += 1
           elsif missing_quotes && current_context == :object_value
             i = 1
             next_c = @scanner.string[@scanner.pos + i]
@@ -384,7 +387,8 @@ module JsonMend
           elsif unmatched_delimiter
             unmatched_delimiter = false
             string_acc << char.to_s
-            char = @scanner.getch
+            @scanner.pos += 1 # Consume the character
+            char = @scanner.peek(1)
           else
             # Check if eventually there is a rstring delimiter, otherwise we bail
             i = 1
@@ -421,15 +425,15 @@ module JsonMend
               next_c = @scanner.string[@scanner.pos + i]
               if ['}', ','].include?(next_c)
                 string_acc << char.to_s
-                char = @scanner.getch
+                @scanner.pos += 1 # Consume the character
+                char = @scanner.peek(1)
                 next
               end
             elsif next_c == rstring_delimiter && @scanner.string[@scanner.pos + i - 1] != '\\'
               # Check if self.index:self.index+i is only whitespaces, break if that's the case
               break if (1..i).all? { |j| @scanner.string[@scanner.pos + j].to_s.match(/\s/) }
 
-              case current_context
-              when :object_value
+              if current_context == :object_value
                 i = skip_whitespaces_at(start_idx: i + 1)
                 if @scanner.string[@scanner.pos + i] == ','
                   # So we found a comma, this could be a case of a single quote like "va"lue",
@@ -442,7 +446,8 @@ module JsonMend
                   next_c = @scanner.string[@scanner.pos + i]
                   if next_c == ':'
                     string_acc << char.to_s
-                    char = @scanner.getch
+                    @scanner.pos += 1 # Consume the character
+                    char = @scanner.peek(1)
                     next
                   end
                 end
@@ -467,9 +472,10 @@ module JsonMend
                 if next_c != ':'
                   unmatched_delimiter = !unmatched_delimiter
                   string_acc << char.to_s
-                  char = @scanner.getch
+                  @scanner.pos += 1 # Consume the character
+                  char = @scanner.peek(1)
                 end
-              when :array
+              elsif current_context == :array
                 # So here we can have a few valid cases:
                 # ["bla bla bla "puppy" bla bla bla "kitty" bla bla"]
                 # ["value1" value2", "value3"]
@@ -491,10 +497,12 @@ module JsonMend
 
                 unmatched_delimiter = !unmatched_delimiter
                 string_acc << char.to_s
-                char = @scanner.getch
-              when :object_key
+                @scanner.pos += 1 # Consume the character
+                char = @scanner.peek(1)
+              elsif current_context == :object_key
                 string_acc << char.to_s
-                char = @scanner.getch
+                @scanner.pos += 1 # Consume the character
+                char = @scanner.peek(1)
               end
             end
           end
@@ -510,7 +518,7 @@ module JsonMend
       # A fallout of the previous special case in the while loop,
       # we need to update the index only if we had a closing quote
       if char == rstring_delimiter
-        @scanner.getch
+        @scanner.pos += 1
       else
         string_acc.rstrip!
       end
@@ -534,7 +542,7 @@ module JsonMend
         !(current_context == :array) || char != ","
       )
         number_str << char
-        @scanner.getch # Consume the character
+        @scanner.pos += 1 # Consume the character
         char = @scanner.peek(1) # Peek at the next character for the next iteration
       end
 
@@ -614,7 +622,7 @@ module JsonMend
 
         # Handle standalone '/' characters that are not part of a comment.
         else
-          @scanner.getch # Skip it to avoid an infinite loop.
+          @scanner.pos += 1 # Skip it to avoid an infinite loop.
         end
       end
 
