@@ -308,11 +308,12 @@ module JsonMend
         string_acc << char
         @scanner.pos += 1 # Consume the character
         char = @scanner.peek(1)
+
         if !@scanner.eos? && string_acc[-1] == "\\"
           # This is a special case, if people use real strings this might happen
           if [rstring_delimiter, 't', 'n', 'r', 'b', '\\'].include?(char)
             string_acc = string_acc.chop
-            escape_seqs = { t: "\t", n: "\n", r: "\r", b: "\b" }
+            escape_seqs = { 't' => "\t", 'n' => "\n", 'r' => "\r", 'b' => "\b" }
             string_acc << escape_seqs.fetch(char, char)
             @scanner.pos += 1 # Consume the character
             char = @scanner.peek(1)
