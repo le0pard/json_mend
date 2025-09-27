@@ -23,7 +23,7 @@ module JsonMend
 
       unless @scanner.eos?
         json = [json]
-        while @scanner.eos?
+        while !@scanner.eos?
           j = parse_json
           if j != ""
             json.pop if same_object_type?(json.last, j)
