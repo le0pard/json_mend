@@ -10,14 +10,14 @@ Gem::Specification.new do |spec|
 
   spec.summary = 'Repair broken JSON'
   spec.description = 'Repair broken JSON'
-  spec.homepage = "https://github.com/le0pard/json_mend"
+  spec.homepage = 'https://github.com/le0pard/json_mend'
   spec.required_ruby_version = '>= 3.0.0'
 
   # spec.metadata['allowed_push_host'] = "TODO: Set to your gem server 'https://example.com'"
 
   spec.metadata['homepage_uri'] = spec.homepage
-  spec.metadata['source_code_uri'] = "https://github.com/le0pard/json_mend"
-  spec.metadata['changelog_uri'] = "https://github.com/le0pard/json_mend/releases"
+  spec.metadata['source_code_uri'] = 'https://github.com/le0pard/json_mend'
+  spec.metadata['changelog_uri'] = 'https://github.com/le0pard/json_mend/releases'
   spec.metadata['rubygems_mfa_required'] = 'true'
 
   # Specify which files should be added to the gem when it is released.

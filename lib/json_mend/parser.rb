@@ -7,6 +7,7 @@ require 'json'
 module JsonMend
   # The core parser that does the heavy lifting of fixing the JSON.
   class Parser
+    COMMENT_DELIMETERS = ['#', '/'].freeze
     STRING_DELIMITERS = ['"', "'", '“', '”'].freeze
 
     def initialize(json_string)
@@ -18,7 +19,7 @@ module JsonMend
     def parse
       values = []
       loop do
-        skip_whitespaces_and_comments
+        skip_whitespaces
         # Actively look for the start of a JSON object or array, skipping garbage text.
         start = @scanner.scan_until(/[{\[]/)
         unless start
@@ -45,26 +46,651 @@ module JsonMend
 
     private
 
-    def parse_value_from_anywhere
-      start = @scanner.scan_until(/[\[{"'\d\-.\\tfcnTFN]/)
-      return nil unless start
-
-      @scanner.pos -= 1 # Rewind to include the valid starting character
-      parse_value
-    end
-
     # Main dispatcher for parsing any JSON value.
     def parse_value
-      skip_whitespaces_and_comments
+      skip_whitespaces
       case @scanner.peek(1)
-      when '{' then parse_object
-      when '[' then parse_array
-      when *STRING_DELIMITERS then parse_string
-      when ->(c) { c&.between?('0', '9') || c == '-' || c == '.' } then parse_number
-      when 't', 'f', 'n', 'T', 'F', 'N' then parse_literal
-      else
-        parse_unquoted_string
+      when '{'
+        @scanner.getch # consume '{'
+        parse_object
+      when '['
+        @scanner.getch # consume '['
+        parse_array
+      when ->(c) { STRING_DELIMITERS.include?(c) || c&.match?(/^[[:alpha:]]$/) } then parse_string
+      when ->(c) { c&.match?(/^\d$/) || c == '-' || c == '.' } then parse_number
+      when *COMMENT_DELIMETERS then parse_comment
       end
+    end
+
+    # Parses a JSON object.
+    def parse_object
+      object = {}
+      while !@scanner.eos? && !@scanner.scan('}')
+        was_array_merged = false
+
+        skip_whitespaces
+
+        # Sometimes LLMs do weird things, if we find a ":" so early, we'll change it to "," and move on
+        @scanner.scan(':')
+
+        # We are now searching for they string key
+        # Context is used in the string parser to manage the lack of quotes
+        @context.push(:object_key)
+
+        # Save this index in case we need find a duplicate key
+        @scanner.pos
+
+        # --- Key Parsing ---
+        key = ''
+        loop do
+          @scanner.pos # Update rollback position
+
+          # Special case: An array appears where a key should be.
+          # If the previous value was an array, merge this one into it.
+          if key.empty? && @scanner.scan('[')
+            prev_key = object.keys.last
+            if prev_key && obj[prev_key].is_a?(Array)
+              @scanner.getch # consume '['
+              new_array = parse_array
+              if new_array.is_a?(Array)
+                to_merge = new_array.length == 1 && new_array[0].is_a?(Array) ? new_array[0] : new_array
+                object[prev_key].concat(to_merge)
+
+                skip_whitespaces
+
+                @scanner.scan(',') # consume optional comma
+                skip_whitespaces
+
+                was_array_merged = true
+                break # Exit key-parsing loop
+              end
+            end
+          end
+
+          key = parse_string.to_s
+          skip_whitespaces if key.empty?
+
+          # Break if we have a key, or if the key is empty but we see a separator.
+          break if !key.empty? || (key.empty? && [':', '}'].include?(@scanner.peek(1)))
+        end
+        # --- End Key Parsing ---
+
+        next if was_array_merged # Continue to next member if we merged an array
+
+        # Handle duplicate keys by rolling back and injecting a new object opening
+        if @context.include?(:array) && object.key?(key)
+          @scanner.pos = rollback_pos - 1
+          @scanner.string.insert(@scanner.pos + 1, '{')
+          break # Exit the main object-parsing loop
+        end
+
+        skip_whitespaces
+        next if @scanner.peek(1) == '}' # End of object
+
+        @scanner.scan(':') # Handle missing ':' after a key
+
+        @context.pop
+        @context.push(:object_value)
+
+        skip_whitespaces
+
+        value = ''
+        # Handle stray comma or empty value before closing brace.
+        value = parse_value unless [',', '}'].include?(@scanner.peek(1))
+
+        @context.pop
+        object[key] = value
+
+        # Consume trailing comma or quotes.
+        @scanner.scan(/[,'"]/)
+        skip_whitespaces
+      end
+
+      return object unless @context.empty? # Don't do this in a nested context
+
+      skip_whitespaces
+
+      return object if @scanner.peek(1) != ','
+
+      @scanner.getch # consume ','
+
+      skip_whitespaces
+      return object unless STRING_DELIMITERS.include?(@scanner.peek(1))
+
+      # Recursively call parse_object to handle the extra pairs.
+      # This relies on the parser's lenient behavior of not requiring a leading '{'.
+      additional_obj = parse_object
+      obj.merge!(additional_obj) if additional_obj.is_a?(Hash)
+
+      object
+    end
+
+    # Parses a JSON array from the string.
+    # Assumes the opening '[' has already been consumed by the caller.
+    # This is a lenient parser designed to handle malformed JSON.
+    def parse_array
+      arr = []
+      @context.push(:array)
+      # Stop when you find the closing bracket or an invalid character like '}'
+      while !@scanner.eos? && !@scanner.scan(/[\]}]/)
+        skip_whitespaces
+        current_char = @scanner.peek(1)
+        # If we find the end of the array after skipping whitespace, break.
+        break if current_char.nil? || [']', '}'].include?(current_char)
+
+        value = nil
+        # Special case: An LLM might forget to open an object with '{'.
+        # If we see a string, we peek ahead to see if it's followed by a ':'
+        # to decide if we should parse an object instead of just a string.
+        if STRING_DELIMITERS.include?(current_char)
+          # This regex checks for a complete, quoted string followed by optional whitespace and a colon.
+          # It correctly handles escaped quotes within the string.
+          is_object_key_ahead = @scanner.check(/"[^"\\]*(?:\\.[^"\\]*)*"\s*:|'[^'\\]*(?:\\.[^'\\]*)*'\s*:/)
+          value = is_object_key_ahead ? parse_object : parse_string
+        else
+          value = parse_value
+        end
+
+        is_empty = value.nil? || (value.respond_to?(:empty?) && value.empty?)
+
+        if is_empty
+          # If parse_value returns nothing valid, advance past the character.
+          @scanner.getch unless @scanner.eos?
+        elsif value == '...' && @scanner.string[@scanner.pos - 1] == '.'
+          # While parsing an array, found a stray '...'; ignoring it
+        else
+          arr << value
+        end
+
+        # Skip over whitespace and an optional comma before the next value
+        skip_whitespaces
+        @scanner.scan(',')
+
+      end
+
+      # Handle a potentially missing closing bracket, a common LLM error.
+      @scanner.scan(']')
+      @context.pop
+
+      arr
+    end
+
+    # Parses a JSON string. This is a very lenient parser designed to handle
+    # many common errors found in LLM-generated JSON, such as missing quotes,
+    # incorrect escape sequences, and ambiguous string terminators
+    def parse_string
+      missing_quotes = false
+      lstring_delimiter = rstring_delimiter = '"'
+
+      skip_whitespaces
+      char = @scanner.peek(1)
+
+      return parse_comment if ['#', '/'].include?(char)
+
+      # A valid string can only start with a valid quote or, in our case, with a literal
+      while char && !STRING_DELIMITERS.include?(char) && !char.match?(/[a-z0-9]/i)
+        char = @scanner.getch
+
+        return '' if char.nil?
+
+        # --- Determine Delimiters and Handle Unquoted Literals ---
+        case char
+        when "'"
+          lstring_delimiter = rstring_delimiter = "'"
+        when '“'
+          lstring_delimiter = '“'
+          rstring_delimiter = '”'
+        when /[a-z0-9]/i
+          # Could be a boolean/null, but not if it's an object key.
+          if char.downcase.match?(/[tfn]/) && !@context.include?(:object_key)
+            # parse_literal is non-destructive if it fails to match.
+            value = parse_literal
+            return value if value != ''
+          end
+          # While parsing a string, we found a literal instead of a quote
+          missing_quotes = true
+        end
+
+        @scanner.getch unless missing_quotes
+
+        # There is sometimes a weird case of doubled quotes, we manage this also later in the while loop
+        next unless STRING_DELIMITERS.include?(@scanner.peek(1)) && @scanner.peek(1) == lstring_delimiter
+        if (
+          current_context == :object_key && @scanner.scan(':')
+        ) || (
+          current_context == :object_value && @scanner.scan(/[,}]/)
+        )
+          return ''
+        elsif @scanner.peek(1) == lstring_delimiter
+          # There's something fishy about this, we found doubled quotes and then again quotes
+          return ''
+        end
+
+        i = skip_to_character(rstring_delimiter, start_idx: 1)
+        next_c = @scanner.rest[@scanner.pos + i]
+        if next_c && @scanner.peek(i + 1) == 'rstring_delimiter'
+          @scanner.getch
+        else
+          # Ok this is not a doubled quote, check if this is an empty string or not
+          i = skip_whitespaces_at(start_idx: 1)
+          next_c = @scanner.rest[@scanner.pos + i]
+          if [*STRING_DELIMITERS, '{', '['].include?(next_c)
+            @scanner.getch
+            return ''
+          elsif ![',', ']', '}'].include?(next_c)
+            @scanner.getch
+          end
+        end
+      end
+
+      string_acc = +''
+
+      # Here things get a bit hairy because a string missing the final quote can also be a key or a value in an object
+      # In that case we need to use the ":|,|}" characters as terminators of the string
+      # So this will stop if:
+      # * It finds a closing quote
+      # * It iterated over the entire sequence
+      # * If we are fixing missing quotes in an object, when it finds the special terminators
+      char = @scanner.peek(1)
+      unmatched_delimiter = false
+      # --- Main Parsing Loop ---
+      until char && char != rstring_delimiter
+        if missing_quotes
+          break if current_context == :object_key && (char == ':' || char.match?(/\s/))
+          break if current_context == :array && [']', ','].include?(char)
+        end
+
+        if char == ']' && @context.include?(:array) && string_acc[-1] != rstring_delimiter
+          i = skip_to_character(rstring_delimiter)
+          # No delimiter found
+          break unless @scanner.rest[@scanner.pos + i]
+        end
+
+        string_acc << char
+        char = @scanner.getch
+        if char && string_acc[-1] == '\\'
+          # This is a special case, if people use real strings this might happen
+          if [rstring_delimiter, 't', 'n', 'r', 'b', '\\'].include?(char)
+            string_acc = string_acc.chop
+            escape_seqs = { t: "\t", n: "\n", r: "\r", b: "\b" }
+            string_acc << escape_seqs.fetch(char, char)
+            char = @scanner.getch
+            while char && string_acc[-1] == '\\' && [rstring_delimiter, '\\'].include?(char)
+              # this is a bit of a special case, if I don't do this it will close the loop or create a train of \\
+              # I don't love it though
+              string_acc = string_acc.chop + char
+              char = @scanner.getch
+            end
+            next
+          elsif ['u', 'x'].include?(char)
+            num_chars = char == 'u' ? 4 : 2
+            next_chars = @scanner.peek(num_chars + 1).chop
+
+            if next_chars.length == num_chars && next_chars.all? { |c| '0123456789abcdefABCDEF'.include?(c) }
+              string_acc = string_acc.chop + next_chars.to_i(16).chr
+              @scanner.pos += num_chars
+              char = @scanner.getch
+              next
+            end
+          elsif STRING_DELIMITERS.include?(char) && char != rstring_delimiter
+            string_acc = string_acc.chop + char
+            char = @scanner.getch
+            next
+          end
+        end
+        # If we are in object key context and we find a colon, it could be a missing right quote
+        if (char = !missing_quotes && current_context == :object_key)
+          i = skip_to_character(lstring_delimiter, start_idx: 1)
+          next_c = @scanner.rest[@scanner.pos + i]
+          break unless next_c
+            i += 1
+            # found the first delimiter
+            i = skip_to_character(rstring_delimiter, start_idx: i)
+            next_c = @scanner.rest[@scanner.pos + i]
+            if next_c
+              # found a second delimiter
+              i += 1
+              # Skip spaces
+              i = skip_whitespaces_at(start_idx: i)
+              next_c = @scanner.rest[@scanner.pos + i]
+              break if next_c && [',', '}'].include?(next_c)
+            end
+
+            # The string ended without finding a lstring_delimiter, I will assume this is a missing right quote
+
+
+        end
+
+        if (char == rstring_delimiter) && (string_acc[-1] != '\\')
+          if doubled_quotes && @scanner.scan(rstring_delimiter)
+            # nothing
+          elsif missing_quotes && current_context == :object_value
+            i = 1
+            next_c = @scanner.rest[@scanner.pos + i]
+            while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
+              i += 1
+              next_c = @scanner.rest[@scanner.pos + i]
+            end
+            if next_c
+              # We found a quote, now let's make sure there's a ":" following
+              i += 1
+              # found a delimiter, now we need to check that is followed strictly by a comma or brace
+              i = skip_whitespaces_at(start_idx: i)
+              next_c = @scanner.rest[@scanner.pos + i]
+              if next_c && next_c == ':'
+                @scanner.pos -= 1
+                char = @scanner.peek(1)
+                break
+              end
+            end
+          elsif unmatched_delimiter
+            unmatched_delimiter = false
+            string_acc << char.to_s
+            char = @scanner.getch
+          else
+            # Check if eventually there is a rstring delimiter, otherwise we bail
+            i = 1
+            next_c = @scanner.rest[@scanner.pos + i]
+            check_comma_in_object_value = true
+            while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
+              # This is a bit of a weird workaround, essentially in object_value context we don't always break on commas
+              # This is because the routine after will make sure to correct any bad guess and this solves a corner case
+              check_comma_in_object_value = false if check_comma_in_object_value && next_c.match?(/[a-z]/i)
+              # If we are in an object context, let's check for the right delimiters
+              if (@context.include?(:object_key) && [':', '}'].include?(next_c)) ||
+                (@context.include?(:object_value) && next_c == '}') ||
+                (@context.include?(:array) && [']', ','].include?(next_c)) ||
+                (
+                  check_comma_in_object_value &&
+                  current_context == :object_value &&
+                  next_c == ','
+                )
+                break
+              end
+
+              i += 1
+              next_c = @scanner.rest[@scanner.pos + i]
+            end
+
+            # If we stopped for a comma in object_value context, let's check if find a "} at the end of the string
+            if next_c == ',' && current_context == :object_value
+              i += 1
+              i = skip_to_character(rstring_delimiter, start_idx: i)
+              next_c = @scanner.rest[@scanner.pos + i]
+              # Ok now I found a delimiter, let's skip whitespaces and see if next we find a } or a ,
+              i += 1
+              i = skip_whitespaces_at(start_idx: i)
+              next_c = @scanner.rest[@scanner.pos + i]
+              if ['}', ','].include?(next_c)
+                string_acc << char.to_s
+                char = @scanner.getch
+                next
+              end
+            elsif next_c == rstring_delimiter && @scanner.rest[@scanner.pos + i - 1] != '\\'
+              # Check if self.index:self.index+i is only whitespaces, break if that's the case
+              break if (1..i).all? { |j| @scanner.rest[@scanner.pos + j].to_s.match(/\s/) }
+
+              case current_context
+              when :object_value
+                i = @scanner.skip_until(/\s*/)
+                if @scanner.rest[@scanner.pos + i] == ','
+                  # So we found a comma, this could be a case of a single quote like "va"lue",
+                  # Search if it's followed by another key, starting with the first delimeter
+                  i = skip_to_character(lstring_delimiter, start_idx: i + 1)
+                  i += 1
+                  i = skip_to_character(rstring_delimiter, start_idx: i + 1)
+                  i += 1
+                  i = @scanner.skip_whitespaces_at(start_idx: i)
+                  next_c = @scanner.rest[@scanner.pos + i]
+                  if next_c == ':'
+                    string_acc << char.to_s
+                    char = @scanner.getch
+                    next
+                  end
+                end
+                # We found a delimiter and we need to check if this is a key
+                # so find a rstring_delimiter and a colon after
+                i = skip_to_character(rstring_delimiter, start_idx: i + 1)
+                i += 1
+                next_c = @scanner.rest[@scanner.pos + i]
+                while next_c && (next_c != ':')
+                  if [',', ']', '}'].include?(next_c) || (
+                    next_c == rstring_delimiter &&
+                    @scanner.rest[@scanner.pos + i - 1] != '\\'
+                  )
+                    break
+                  end
+
+                  i += 1
+                  next_c = @scanner.rest[@scanner.pos + i]
+                end
+
+                # Only if we fail to find a ':' then we know this is misplaced quote
+                if next_c != ':'
+                  unmatched_delimiter = !unmatched_delimiter
+                  string_acc << char.to_s
+                  char = @scanner.getch
+                end
+              when :array
+                # So here we can have a few valid cases:
+                # ["bla bla bla "puppy" bla bla bla "kitty" bla bla"]
+                # ["value1" value2", "value3"]
+                # The basic idea is that if we find an even number of delimiters after this delimiter
+                # we ignore this delimiter as it should be fine
+                even_delimiters = next_c == rstring_delimiter
+                while next_c == rstring_delimiter
+                  i = skip_to_character([rstring_delimiter, ']'], start_idx: i + 1)
+                  next_c = @scanner.rest[@scanner.pos + i]
+                  if next_c != rstring_delimiter
+                    even_delimiters = false
+                    break
+                  end
+                  i = skip_to_character([rstring_delimiter, ']'], start_idx: i + 1)
+                  next_c = @scanner.rest[@scanner.pos + i]
+                end
+
+                break unless even_delimiters
+                  unmatched_delimiter = !unmatched_delimiter
+                  string_acc << char.to_s
+                  char = @scanner.getch
+
+
+
+              when :object_key
+                string_acc << char.to_s
+                char = @scanner.getch
+              end
+            end
+          end
+
+        end
+
+        # --- Handle Escape Sequences ---
+        next unless char == '\\'
+        @scanner.getch # Consume '\'
+        escaped_char = @scanner.peek(1)
+        @scanner.getch
+        if %w[u x].include?(escaped_char)
+          num_chars = escaped_char == 'u' ? 4 : 2
+          hex_code = @scanner.scan(/[0-9a-fA-F]{#{num_chars}}/)
+          string_acc << (hex_code ? hex_code.to_i(16).chr('UTF-8') : "\\#{escaped_char}")
+        else
+          case escaped_char
+          when 't' then string_acc << "\t"
+          when 'n' then string_acc << "\n"
+          when 'r' then string_acc << "\r"
+          when 'b' then string_acc << "\b"
+          else string_acc << escaped_char if escaped_char # Handles \\, \", etc.
+          end
+        end
+        next
+      end
+
+      if char && missing_quotes && current_context == :object_key && char.match(/\s/)
+        skip_whitespaces
+        return '' unless [':', ','].include?(@scanner.peek(1))
+      end
+
+      # A fallout of the previous special case in the while loop,
+      # we need to update the index only if we had a closing quote
+      if char == rstring_delimiter
+        @scanner.getch
+      else
+        string_acc.rstrip!
+      end
+
+      string_acc.rstrip! if missing_quotes || (string_acc && string_acc[-1] == "\n")
+
+      string_acc
+    end
+
+    # Parses a JSON number, which can be an integer or a floating-point value.
+    # This parser is lenient and will also handle currency-like strings with commas,
+    # returning them as a string. It attempts to handle various malformed number
+    # inputs that might be generated by LLMs
+    def parse_number
+      # The set of valid characters for a number depends on the context.
+      # Inside an array, a comma terminates the number.
+      is_array = current_context == :array
+      number_regex = is_array ? /[0-9\-eE.]+/ : /[0-9\-eE.,]+/
+
+      # Scan for a sequence of characters that could form a number.
+      number_str = @scanner.scan(number_regex)
+      return '' unless number_str
+
+      # Handle cases where the number ends with an invalid character.
+      if /[-eE,]\z/.match?(number_str)
+        # Roll back one character in both the string and the scanner.
+        number_str.chop!
+        @scanner.unscan
+      # Handle cases where what looked like a number is actually a string.
+      # e.g., "123-abc"
+      elsif @scanner.peek(1)&.match?(/[a-z]/i)
+        # Roll back the entire scan and re-parse as a string.
+        @scanner.pos -= number_str.length
+        return parse_string
+      end
+
+      # If the string contains a comma, treat it as a string literal (e.g., currency).
+      return number_str if number_str.include?(',')
+
+      # Attempt to convert the string to the appropriate number type.
+      # Use rescue to handle conversion errors gracefully, returning the original string.
+      begin
+        if number_str.match?(/[.eE]/i)
+          Float(number_str)
+        else
+          Integer(number_str)
+        end
+      rescue ArgumentError
+        number_str
+      end
+    end
+
+    # Parses the JSON literals `true`, `false`, or `null`.
+    # This is case-insensitive.
+    def parse_literal
+      if @scanner.scan(/true/i)
+        return true
+      elsif @scanner.scan(/false/i)
+        return false
+      elsif @scanner.scan(/null/i)
+        return nil
+      end
+
+      # If nothing matches, return an empty string to signify that this
+      # was not a boolean or null value, consistent with the Python version.
+      ''
+    end
+
+    # Parses and skips over code-style comments.
+    # - # line comment
+    # - // line comment
+    # - /* block comment */
+    # After skipping the comment, it either continues parsing if at the top level
+    # or returns an empty string to be ignored by the caller.
+    def parse_comment
+      # Determine valid line comment termination characters based on the current context.
+      termination_chars = ["\n", "\r"]
+      termination_chars << ']' if @context.include?(:array)
+      termination_chars << '}' if @context.include?(:object_value)
+      termination_chars << ':' if @context.include?(:object_key)
+      line_comment_matcher = Regexp.new("[#{Regexp.escape(termination_chars.join)}]")
+
+      # Line comment starting with #
+      if @scanner.skip(/#/)
+        # Skip until the next terminator or the end of the string.
+        found_terminator = @scanner.skip_until(line_comment_matcher)
+        @scanner.terminate unless found_terminator
+      # Comments starting with /
+      elsif @scanner.check(%r{/})
+        # Handle line comment starting with //
+        if @scanner.skip(%r{//})
+          found_terminator = @scanner.skip_until(line_comment_matcher)
+          @scanner.terminate unless found_terminator
+
+        # Handle block comment starting with /*
+        elsif @scanner.skip(%r{/\*})
+          found_terminator = @scanner.skip_until(%r{\*/})
+          @scanner.terminate unless found_terminator
+
+        # Handle standalone '/' characters that are not part of a comment.
+        else
+          @scanner.getch # Skip it to avoid an infinite loop.
+        end
+      end
+
+      # If we've parsed a top-level comment, continue parsing the next JSON element.
+      # Otherwise, return an empty string to signify the comment was ignored.
+      return parse_value if @context.empty?
+
+      ''
+    end
+
+    # This function is a non-destructive lookahead.
+    # It quickly iterates to find a character, handling escaped characters, and
+    # returns the index (offset) from the scanner
+    def skip_to_character(characters, start_idx: 0)
+      # Get the rest of the string from the scanner's current position for lookahead.
+      search_string = @scanner.rest
+      character_list = Array(characters)
+      current_idx = start_idx
+
+      while current_idx < search_string.length
+        # If the character at the current index is one we're looking for...
+        if character_list.include?(search_string[current_idx])
+          # ...check if it's escaped by a preceding backslash.
+          return current_idx unless current_idx.positive? && search_string[current_idx - 1] == '\\'
+
+          # It was escaped, so we continue our search from the next character.
+          current_idx += 1
+          next
+
+          # It's not escaped. We've found our character. Return its index.
+
+        end
+        current_idx += 1
+      end
+
+      # If the loop completes, the character was not found. Return the final index,
+      # which points to the end of the search string.
+      current_idx
+    end
+
+    # This function uses the StringScanner to skip whitespace from the current position.
+    # It is more efficient and idiomatic than manual index management
+    def skip_whitespaces_at(start_idx: 0)
+      idx = start_idx
+      # This function quickly iterates on whitespaces, syntactic sugar to make the code more concise
+      char = @scanner.string[@scanner.pos + idx]
+      return idx if char.nil?
+
+      while char && char.match?(/\s/)
+        idx += 1
+        char = @scanner.string[@scanner.pos + idx]
+      end
+
+      idx
     end
 
     # Helper to check if two objects are of the same container type (Array or Hash).
@@ -72,214 +698,9 @@ module JsonMend
       (obj1.is_a?(Array) && obj2.is_a?(Array)) || (obj1.is_a?(Hash) && obj2.is_a?(Hash))
     end
 
-    # Parses a JSON object.
-    def parse_object
-      @scanner.getch # Consume '{'
-      @context.push(:object)
-
-      object = {}
-      loop do
-        skip_whitespaces_and_comments
-
-        break if @scanner.peek(1) == '}' || @scanner.eos?
-
-        key = parse_value
-        # If the key is garbage, we can't continue parsing this object.
-        break unless key
-
-        skip_whitespaces_and_comments
-        object[key.to_s] = if @scanner.scan(':')
-                             parse_value
-                           else
-                             true # Implicit true for keys without values
-                           end
-        skip_whitespaces_and_comments
-        break if @scanner.peek(1) == '}' || @scanner.eos?
-
-        @scanner.scan(',')
-      end
-      @scanner.scan(/}/)
-      @context.pop
-      object
-    end
-
-    # Parses a JSON array.
-    def parse_array
-      @scanner.getch # Consume '['
-      @context.push(:array)
-      array = []
-      loop do
-        skip_whitespaces_and_comments
-        break if @scanner.peek(1) == ']' || @scanner.eos?
-
-        if @scanner.scan('...')
-          @scanner.scan(',')
-          next
-        end
-
-        value = parse_value
-        # If we hit garbage inside an array, we stop parsing the array.
-        break unless value
-
-        array << value
-
-        skip_whitespaces_and_comments
-        break if @scanner.peek(1) == ']' || @scanner.eos?
-
-        @scanner.scan(',')
-      end
-      @scanner.scan(/]/)
-      @context.pop
-      array
-    end
-
-    # Parses a quoted string.
-    def parse_string
-      quote = @scanner.peek(1)
-      return nil unless STRING_DELIMITERS.include?(quote)
-
-      @scanner.getch
-      buffer = +''
-      loop do
-        char = @scanner.getch
-        break if char.nil?
-
-        if char == '\\'
-          buffer << char
-          buffer << @scanner.getch unless @scanner.eos?
-        elsif (quote == '“' && char == '”') || char == quote
-          return buffer
-        else
-          buffer << char
-        end
-      end
-      buffer
-    end
-
-    # **FIXED**: Parses an unquoted string value robustly.
-    def parse_unquoted_string
-      buffer = +''
-      loop do
-        break if @scanner.eos?
-
-        char = @scanner.peek(1)
-
-        terminators = [',', '}', ']']
-        # A colon terminates a key, but can be part of a value
-        terminators << ':' if @context.last == :object
-
-        break if terminators.include?(char)
-
-        # Break on whitespace only if it's not between words
-        if char.strip.empty? && !buffer.empty?
-          # Peek ahead to see if the next non-whitespace char is a terminator
-          next_char_pos = @scanner.pos + 1
-          next_char_pos += 1 while @scanner.string[next_char_pos]&.strip&.empty?
-          next_non_ws = @scanner.string[next_char_pos]
-          break if next_non_ws.nil? || terminators.include?(next_non_ws)
-        elsif char.strip.empty?
-          break
-        end
-
-        buffer << @scanner.getch
-      end
-
-      literal = parse_literal_from_string(buffer)
-      return literal unless literal.nil?
-
-      buffer.strip
-    end
-
-    # Parses true, false, or null from a string (for unquoted values).
-    def parse_literal_from_string(str)
-      s = str.strip.downcase
-      case s
-      when 'true' then true
-      when 'false' then false
-      when 'null' then nil
-      end
-    end
-
-    # Parses a number (integer or float).
-    def parse_number
-      number_result = []
-
-      # Greedily consume all characters that could be part of a number or number-like string
-      loop do
-        break if @scanner.eos?
-
-        char = @scanner.peek(1)
-        break if char.nil?
-        break if char == ',' && current_context == :array
-
-        break unless '0123456789-.eE/,'.include?(char)
-
-        number_result << @scanner.getch
-      end
-
-      # Roll back if the string ends with an invalid character
-      if !number_result.empty? && '-eE/,'.include?(number_result[-1])
-        number_result.pop
-        @scanner.pos -= 1
-      end
-
-      return nil if number_result.empty?
-
-      # If the number is immediately followed by other characters, it's part of a string
-      if @scanner.check(/[a-zA-Z]/)
-        number_result << @scanner.scan(/[a-zA-Z0-9]*/)
-        return number_result.join
-      end
-
-      # Attempt to convert to a number, falling back to a string if it fails
-      begin
-        if number_result.include?('/') || number_result.count { it == '.' } > 1 || number_result.count do
-          it == '-'
-        end > 1
-          number_result.join&.to_s # Treat as a string
-        elsif number_result.include?('.') || number_result.find { it&.downcase == 'e' }
-          Float(number_result.join)
-        else
-          Integer(number_result.join)
-        end
-      rescue ArgumentError
-        number_result.join
-      end
-    end
-
-    # Parses true, false, or null from the scanner.
-    def parse_literal
-      if @scanner.scan(/true/i)
-        true
-      elsif @scanner.scan(/false/i)
-        false
-      elsif @scanner.scan(/null/i)
-        nil
-      end
-    end
-
-    # Skips whitespace and all comment types.
-    def skip_whitespaces_and_comments
-      loop do
-        start_pos = @scanner.pos
-        @scanner.scan(/\s+/)
-        if @scanner.check(%r{/[/*#]})
-          if @scanner.check(%r{/\*})
-            @scanner.scan_until(%r{\*/})
-          elsif @scanner.scan(%r{//}) || @scanner.scan(/#/)
-            loop do
-              char = @scanner.peek(1)
-              break if char.nil?
-              terminators = ["\n", "\r"]
-              terminators << "}" if current_context == :object
-              terminators << "]" if current_context == :array
-              break if terminators.include?(char)
-              @scanner.getch
-            end
-          end
-        end
-        break if @scanner.pos == start_pos
-      end
+    # Skips whitespaces
+    def skip_whitespaces
+      @scanner.skip(/\s+/)
     end
 
     def current_context
