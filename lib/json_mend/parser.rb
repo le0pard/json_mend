@@ -49,9 +49,9 @@ module JsonMend
         when '['
           @scanner.getch # consume '['
           return parse_array
-        when ->(c) { STRING_DELIMITERS.include?(c) || c&.match?(/[a-zA-Z]/) }
+        when ->(c) { !@context.empty? && (STRING_DELIMITERS.include?(c) || c&.match?(/[a-zA-Z]/)) }
           return parse_string
-        when ->(c) { c&.match?(/\d/) || c == '-' || c == '.' }
+        when ->(c) { !@context.empty? && (c&.match?(/\d/) || c == '-' || c == '.') }
           return parse_number
         when *COMMENT_DELIMETERS
           return parse_comment
@@ -167,7 +167,7 @@ module JsonMend
       # Recursively call parse_object to handle the extra pairs.
       # This relies on the parser's lenient behavior of not requiring a leading '{'.
       additional_obj = parse_object
-      obj.merge!(additional_obj) if additional_obj.is_a?(Hash)
+      object.merge!(additional_obj) if additional_obj.is_a?(Hash)
 
       object
     end
@@ -198,7 +198,7 @@ module JsonMend
 
         if is_strictly_empty(value)
           @scanner.getch
-        elsif value == "..." && @scanner.string[-1] == "."
+        elsif value == "..." && @scanner.string.chars[@scanner.charpos - 1] == '.'
         else
           arr << value
         end
@@ -307,7 +307,7 @@ module JsonMend
         if missing_quotes
           break if current_context == :object_key && (char == ':' || char.match?(/\s/))
           break if current_context == :array && [']', ','].include?(char)
-          # break if current_context == :object_value && [',', '}'].include?(char)
+          break if current_context == :object_value && [',', '}'].include?(char)
         end
 
         if current_context == :object_value && [',', '}'].include?(char) && (string_acc.empty? || string_acc[-1] != rstring_delimiter)

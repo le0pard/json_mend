@@ -13,8 +13,14 @@ module JsonMend
     # @param return_objects [Boolean] If true, returns a Ruby object (Hash or Array), otherwise returns a valid JSON string.
     # @return [Object, String] The repaired JSON object or string.
     def repair(json_string, return_objects: false)
-      parser = Parser.new(json_string)
-      repaired_json = parser.parse
+      # First, attempt to parse the string with the standard library.
+      repaired_json = begin
+        JSON.parse(json_string)
+      rescue JSON::ParserError
+        parser = Parser.new(json_string)
+        parser.parse
+      end
+
       # Avoids returning `null` for empty results, returns the object directly
       return repaired_json if return_objects
 
