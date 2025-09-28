@@ -46,7 +46,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"key": "value\\nvalue"}',
-          expected_output: JSON.dump({ key: 'value\\nvalue' })
+          expected_output: JSON.dump({ key: "value\nvalue" })
         }
       ].each do |test_case|
         it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do
@@ -95,7 +95,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"key": "value\\nvalue"}',
-          expected_output: JSON.dump({ key: 'value\\nvalue' })
+          expected_output: JSON.dump({ key: "value\nvalue" })
         }
       ].each do |test_case|
         it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do

@@ -597,33 +597,49 @@ module JsonMend
     # After skipping the comment, it either continues parsing if at the top level
     # or returns an empty string to be ignored by the caller.
     def parse_comment
+      char = @scanner.peek(1)
+
       # Determine valid line comment termination characters based on the current context.
       termination_chars = ["\n", "\r"]
       termination_chars << ']' if @context.include?(:array)
       termination_chars << '}' if @context.include?(:object_value)
       termination_chars << ':' if @context.include?(:object_key)
-      line_comment_matcher = Regexp.new("[#{Regexp.escape(termination_chars.join)}]")
 
       # Line comment starting with #
-      if @scanner.skip(/#/)
-        # Skip until the next terminator or the end of the string.
-        found_terminator = @scanner.skip_until(line_comment_matcher)
-        @scanner.terminate unless found_terminator
+      if char == "#"
+        comment = +""
+        while !@scanner.eos? && !termination_chars.include?(char)
+          comment << char
+          @scanner.pos += 1
+          char = @scanner.peek(1)
+        end
       # Comments starting with /
-      elsif @scanner.check(%r{/})
+      elsif char == "/"
+        next_char = @scanner.string[@scanner.pos + 1]
         # Handle line comment starting with //
-        if @scanner.skip(%r{//})
-          found_terminator = @scanner.skip_until(line_comment_matcher)
-          @scanner.terminate unless found_terminator
-
+        if next_char == "/"
+          comment = +"//"
+          @scanner.pos += 2
+          char = @scanner.peek(1)
+          while !@scanner.eos? && !termination_chars.include?(char)
+            comment << char
+            @scanner.pos += 1
+            char = @scanner.peek(1)
+          end
         # Handle block comment starting with /*
-        elsif @scanner.skip(%r{/\*})
-          found_terminator = @scanner.skip_until(%r{\*/})
-          @scanner.terminate unless found_terminator
+        elsif next_char == "*"
+          comment = "/*"
+          @scanner.pos += 2
+          loop do
+            break if @scanner.eos?
 
-        # Handle standalone '/' characters that are not part of a comment.
+            char = @scanner.peek(1)
+            comment += char
+            @scanner.pos += 1
+            break if comment.end_with?("*/")
+          end
         else
-          @scanner.pos += 1 # Skip it to avoid an infinite loop.
+          @scanner.pos += 1
         end
       end
 
