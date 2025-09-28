@@ -49,9 +49,9 @@ module JsonMend
         when '['
           @scanner.getch # consume '['
           return parse_array
-        when ->(c) { !@context.empty? && (STRING_DELIMITERS.include?(c) || c&.match?(/[a-zA-Z]/)) }
+        when ->(c) { STRING_DELIMITERS.include?(c) || c&.match?(/[a-zA-Z]/) }
           return parse_string
-        when ->(c) { !@context.empty? && (c&.match?(/\d/) || c == '-' || c == '.') }
+        when ->(c) { c&.match?(/\d/) || c == '-' || c == '.' }
           return parse_number
         when *COMMENT_DELIMETERS
           return parse_comment
