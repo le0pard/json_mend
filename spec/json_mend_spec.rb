@@ -562,7 +562,7 @@ RSpec.describe JsonMend do
       end
     end
 
-    context 'when provided json with array edge cases', :skip do
+    context 'when provided json with array edge cases' do
       [
         {
           input: '[{]',
