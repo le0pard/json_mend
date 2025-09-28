@@ -75,12 +75,12 @@ module JsonMend
         @context.push(:object_key)
 
         # Save this index in case we need find a duplicate key
-        rollback_index = @scanner.pos
+        rollback_index = @scanner.charpos
 
         # --- Key Parsing ---
         key = ''
         while !@scanner.eos?
-          rollback_index = @scanner.pos # Update rollback position
+          rollback_index = @scanner.charpos # Update rollback position
           # Is this an array?
           # Need to check if the previous parsed value contained in obj is an array and in that case parse and merge the two
           if key.empty? && peek_char == '['
@@ -113,12 +113,19 @@ module JsonMend
 
         # Handle duplicate keys by rolling back and injecting a new object opening
         if @context.include?(:array) && object.key?(key)
+          # Convert the character-based rollback_index to a byte-based index for string manipulation.
+          # We do this by taking the substring up to the character position and getting its byte length.
+          byte_rollback_index = @scanner.string.chars[0...rollback_index].join.bytesize
+
+          # Now, use the byte-based index for all string slicing and scanner positioning.
           @scanner = StringScanner.new([
-            @scanner.string[0...rollback_index],
+            @scanner.string.byteslice(0...byte_rollback_index),
             '{',
-            @scanner.string[rollback_index..-1]
+            @scanner.string.byteslice(byte_rollback_index..-1)
           ].join)
-          @scanner.pos = rollback_index - 1
+
+          # Set the scanner's position to the new byte index.
+          @scanner.pos = byte_rollback_index
           break # Exit the main object-parsing loop
         end
 
@@ -184,7 +191,7 @@ module JsonMend
           i = 1
           i = skip_to_character(char, start_idx: i)
           i = skip_whitespaces_at(start_idx: i + 1)
-          value = (@scanner.string[@scanner.pos + i] == ":" ? parse_object : parse_string)
+          value = (peek_char(i) == ":" ? parse_object : parse_string)
         else
           value = parse_json
         end
@@ -252,7 +259,7 @@ module JsonMend
 
       # There is sometimes a weird case of doubled quotes, we manage this also later in the while loop
       if STRING_DELIMITERS.include?(peek_char) && peek_char == lstring_delimiter
-        next_value = @scanner.string[@scanner.pos + 1]
+        next_value = peek_char(1)
 
         if (
           current_context == :object_key && next_value == ':'
@@ -267,15 +274,15 @@ module JsonMend
         end
 
         i = skip_to_character(rstring_delimiter, start_idx: 1)
-        next_c = @scanner.string[@scanner.pos + i]
+        next_c = peek_char(i)
 
-        if next_c && @scanner.string[@scanner.pos + i + 1] == rstring_delimiter
+        if next_c && peek_char(i + 1) == rstring_delimiter
           doubled_quotes = true
           @scanner.getch
         else
           # Ok this is not a doubled quote, check if this is an empty string or not
           i = skip_whitespaces_at(start_idx: 1)
-          next_c = @scanner.string[@scanner.pos + i]
+          next_c = peek_char(i)
           if [*STRING_DELIMITERS, '{', '['].include?(next_c)
             @scanner.getch
             return ''
@@ -306,7 +313,7 @@ module JsonMend
         if char == ']' && @context.include?(:array) && string_acc[-1] != rstring_delimiter
           i = skip_to_character(rstring_delimiter)
           # No delimiter found
-          break unless @scanner.string[@scanner.pos + i]
+          break unless peek_char(i)
         end
 
         string_acc << char
@@ -349,19 +356,19 @@ module JsonMend
         # If we are in object key context and we find a colon, it could be a missing right quote
         if (char == ':' && !missing_quotes && current_context == :object_key)
           i = skip_to_character(lstring_delimiter, start_idx: 1)
-          next_c = @scanner.string[@scanner.pos + i]
+          next_c = peek_char(i)
           break unless next_c
 
           i += 1
           # found the first delimiter
           i = skip_to_character(rstring_delimiter, start_idx: i)
-          next_c = @scanner.string[@scanner.pos + i]
+          next_c = peek_char(i)
           if next_c
             # found a second delimiter
             i += 1
             # Skip spaces
             i = skip_whitespaces_at(start_idx: i)
-            next_c = @scanner.string[@scanner.pos + i]
+            next_c = peek_char(i)
             break if next_c && [',', '}'].include?(next_c)
           end
 
@@ -372,17 +379,17 @@ module JsonMend
             @scanner.getch
           elsif missing_quotes && current_context == :object_value
             i = 1
-            next_c = @scanner.string[@scanner.pos + i]
+            next_c = peek_char(i)
             while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
               i += 1
-              next_c = @scanner.string[@scanner.pos + i]
+              next_c = peek_char(i)
             end
             if next_c
               # We found a quote, now let's make sure there's a ":" following
               i += 1
               # found a delimiter, now we need to check that is followed strictly by a comma or brace
               i = skip_whitespaces_at(start_idx: i)
-              next_c = @scanner.string[@scanner.pos + i]
+              next_c = peek_char(i)
               if next_c && next_c == ':'
                 @scanner.pos -= 1
                 char = peek_char
@@ -397,7 +404,7 @@ module JsonMend
           else
             # Check if eventually there is a rstring delimiter, otherwise we bail
             i = 1
-            next_c = @scanner.string[@scanner.pos + i]
+            next_c = peek_char(i)
             check_comma_in_object_value = true
             while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
               # This is a bit of a weird workaround, essentially in object_value context we don't always break on commas
@@ -416,31 +423,31 @@ module JsonMend
               end
 
               i += 1
-              next_c = @scanner.string[@scanner.pos + i]
+              next_c = peek_char(i)
             end
 
             # If we stopped for a comma in object_value context, let's check if find a "} at the end of the string
             if next_c == ',' && current_context == :object_value
               i += 1
               i = skip_to_character(rstring_delimiter, start_idx: i)
-              next_c = @scanner.string[@scanner.pos + i]
+              next_c = peek_char(i)
               # Ok now I found a delimiter, let's skip whitespaces and see if next we find a } or a ,
               i += 1
               i = skip_whitespaces_at(start_idx: i)
-              next_c = @scanner.string[@scanner.pos + i]
+              next_c = peek_char(i)
               if ['}', ','].include?(next_c)
                 string_acc << char.to_s
                 @scanner.getch # Consume the character
                 char = peek_char
                 next
               end
-            elsif next_c == rstring_delimiter && @scanner.string[@scanner.pos + i - 1] != '\\'
+            elsif next_c == rstring_delimiter && peek_char(i - 1) != '\\'
               # Check if self.index:self.index+i is only whitespaces, break if that's the case
-              break if (1..i).all? { |j| @scanner.string[@scanner.pos + j].to_s.match(/\s/) }
+              break if (1..i).all? { |j| peek_char(j).to_s.match(/\s/) }
 
               if current_context == :object_value
                 i = skip_whitespaces_at(start_idx: i + 1)
-                if @scanner.string[@scanner.pos + i] == ','
+                if peek_char(i) == ','
                   # So we found a comma, this could be a case of a single quote like "va"lue",
                   # Search if it's followed by another key, starting with the first delimeter
                   i = skip_to_character(lstring_delimiter, start_idx: i + 1)
@@ -448,7 +455,7 @@ module JsonMend
                   i = skip_to_character(rstring_delimiter, start_idx: i + 1)
                   i += 1
                   i = skip_whitespaces_at(start_idx: i)
-                  next_c = @scanner.string[@scanner.pos + i]
+                  next_c = peek_char(i)
                   if next_c == ':'
                     string_acc << char.to_s
                     @scanner.getch # Consume the character
@@ -460,17 +467,17 @@ module JsonMend
                 # so find a rstring_delimiter and a colon after
                 i = skip_to_character(rstring_delimiter, start_idx: i + 1)
                 i += 1
-                next_c = @scanner.string[@scanner.pos + i]
+                next_c = peek_char(i)
                 while next_c && next_c != ':'
                   if [',', ']', '}'].include?(next_c) || (
                     next_c == rstring_delimiter &&
-                    @scanner.string[@scanner.pos + i - 1] != '\\'
+                    peek_char(i - 1) != '\\'
                   )
                     break
                   end
 
                   i += 1
-                  next_c = @scanner.string[@scanner.pos + i]
+                  next_c = peek_char(i)
                 end
 
                 # Only if we fail to find a ':' then we know this is misplaced quote
@@ -489,13 +496,13 @@ module JsonMend
                 even_delimiters = next_c == rstring_delimiter
                 while next_c == rstring_delimiter
                   i = skip_to_character([rstring_delimiter, ']'], start_idx: i + 1)
-                  next_c = @scanner.string[@scanner.pos + i]
+                  next_c = peek_char(i)
                   if next_c != rstring_delimiter
                     even_delimiters = false
                     break
                   end
                   i = skip_to_character([rstring_delimiter, ']'], start_idx: i + 1)
-                  next_c = @scanner.string[@scanner.pos + i]
+                  next_c = peek_char(i)
                 end
 
                 break unless even_delimiters
@@ -601,51 +608,34 @@ module JsonMend
     # After skipping the comment, it either continues parsing if at the top level
     # or returns an empty string to be ignored by the caller.
     def parse_comment
-      char = peek_char
+      # Check for a block comment `/* ... */`
+      if @scanner.scan(%r{/\*})
+        # Scan until the closing delimiter is found.
+        # The `lazy` quantifier `*?` ensures we stop at the *first* `*/`.
+        @scanner.scan_until(%r{\*/})
 
-      # Determine valid line comment termination characters based on the current context.
-      termination_chars = ["\n", "\r"]
-      termination_chars << ']' if @context.include?(:array)
-      termination_chars << '}' if @context.include?(:object_value)
-      termination_chars << ':' if @context.include?(:object_key)
+      # Check for a line comment `//...` or `#...`
+      elsif @scanner.scan(%r{//|#})
+        # Determine valid line comment termination characters based on context.
+        termination_chars = ["\n", "\r"]
+        termination_chars << ']' if @context.include?(:array)
+        termination_chars << '}' if @context.include?(:object_value)
+        termination_chars << ':' if @context.include?(:object_key)
 
-      # Line comment starting with #
-      if char == "#"
-        comment = +""
-        while !@scanner.eos? && !termination_chars.include?(char)
-          comment << char
-          @scanner.getch
-          char = peek_char
-        end
-      # Comments starting with /
-      elsif char == "/"
-        next_char = @scanner.string[@scanner.pos + 1]
-        # Handle line comment starting with //
-        if next_char == "/"
-          comment = +"//"
-          @scanner.pos += 2
-          char = peek_char
-          while !@scanner.eos? && !termination_chars.include?(char)
-            comment << char
-            @scanner.getch
-            char = peek_char
-          end
-        # Handle block comment starting with /*
-        elsif next_char == "*"
-          comment = "/*"
-          @scanner.pos += 2
-          loop do
-            break if @scanner.eos?
+        # Create a regex that will scan until it hits one of the terminators.
+        # The terminators are positive lookaheads, so they aren't consumed by the scan.
+        terminator_regex = Regexp.new("(?=#{termination_chars.map { |c| Regexp.escape(c) }.join('|')})")
 
-            char = peek_char
-            comment += char
-            @scanner.getch
-            break if comment.end_with?("*/")
-          end
-        else
-          @scanner.getch
-        end
+        # Scan until the end of the comment.
+        @scanner.scan_until(terminator_regex)
+      else
+        # The character at the current position (likely '/') is not the start of a
+        # valid comment. To prevent an infinite loop in the calling parser, we must
+        # consume this single stray character before exiting.
+        @scanner.getch
       end
+
+      skip_whitespaces
 
       # If we've parsed a top-level comment, continue parsing the next JSON element.
       # Otherwise, return an empty string to signify the comment was ignored.
@@ -661,27 +651,45 @@ module JsonMend
       # Get the rest of the string from the scanner's current position for lookahead.
       search_string = @scanner.rest
       character_list = Array(characters)
-      current_idx = start_idx
 
-      while current_idx < search_string.length
-        # If the character at the current index is one we're looking for...
-        if character_list.include?(search_string[current_idx])
-          # ...check if it's escaped by a preceding backslash.
-          return current_idx unless current_idx.positive? && search_string[current_idx - 1] == '\\'
+      # byte_pos will track our position in bytes.
+      byte_pos = 0
 
-          # It was escaped, so we continue our search from the next character.
-          current_idx += 1
-          next
+      # We iterate through each character, getting the character itself and its character index.
+      # The .chars method is UTF-8 aware.
+      search_string.chars.each_with_index do |char, char_index|
 
-          # It's not escaped. We've found our character. Return its index.
+        # Only start checking for matches once we are past the start_idx (in bytes).
+        if byte_pos >= start_idx && character_list.include?(char)
 
+          # Check if the character is escaped.
+          is_escaped = false
+          if char_index > 0
+
+            # Look backwards from the character before the current one.
+            temp_index = char_index - 1
+            slash_count = 0
+
+            # Count how many consecutive backslashes precede the character.
+            while temp_index >= 0 && search_string[temp_index] == '\\'
+              slash_count += 1
+              temp_index -= 1
+            end
+
+            # An odd number of backslashes means the character is escaped.
+            is_escaped = slash_count.odd?
+          end
+
+          # If it's not escaped, we've found our match. Return the byte position.
+          return byte_pos unless is_escaped
         end
-        current_idx += 1
+
+        # Advance the byte position by the byte size of the current character.
+        byte_pos += char.bytesize
       end
 
-      # If the loop completes, the character was not found. Return the final index,
-      # which points to the end of the search string.
-      current_idx
+      # If the loop completes, the character was not found. Return the total byte length.
+      search_string.bytesize
     end
 
     # This function uses the StringScanner to skip whitespace from the current position.
@@ -689,12 +697,12 @@ module JsonMend
     def skip_whitespaces_at(start_idx: 0)
       idx = start_idx
       # This function quickly iterates on whitespaces, syntactic sugar to make the code more concise
-      char = @scanner.string[@scanner.pos + idx]
+      char = peek_char(idx)
       return idx if char.nil?
 
       while !@scanner.eos? && char.match?(/\s/)
         idx += 1
-        char = @scanner.string[@scanner.pos + idx]
+        char = peek_char(idx)
       end
 
       idx
@@ -715,9 +723,11 @@ module JsonMend
       @scanner.skip(/\s+/)
     end
 
-    def peek_char
+    def peek_char(offset = 0)
       # Peeks the next character without advancing the scanner
-      @scanner.check(/./m)
+      rest_of_string = @scanner.rest
+      characters = rest_of_string.chars
+      characters[offset]
     end
 
     def current_context
