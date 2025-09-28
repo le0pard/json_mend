@@ -307,7 +307,6 @@ module JsonMend
         if missing_quotes
           break if current_context == :object_key && (char == ':' || char.match?(/\s/))
           break if current_context == :array && [']', ','].include?(char)
-          break if current_context == :object_value && [',', '}'].include?(char)
         end
 
         if current_context == :object_value && [',', '}'].include?(char) && (string_acc.empty? || string_acc[-1] != rstring_delimiter)
@@ -365,7 +364,7 @@ module JsonMend
                   # Ok it's not right after the comma
                   # Let's ignore
                   rstring_delimiter_missing = false
-                elsif peek_char(k)
+                elsif peek_char(j)
                   # Check for an unmatched opening brace in string_acc
                   string_acc.reverse.chars.each do |c|
                     if c == '{'
