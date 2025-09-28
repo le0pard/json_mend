@@ -85,7 +85,7 @@ module JsonMend
           # Need to check if the previous parsed value contained in obj is an array and in that case parse and merge the two
           if key.empty? && @scanner.peek(1) == '['
             prev_key = object.keys.last
-            if prev_key && obj[prev_key].is_a?(Array)
+            if prev_key && object[prev_key].is_a?(Array)
               @scanner.pos += 1 # consume '['
               new_array = parse_array
               if new_array.is_a?(Array)
@@ -113,8 +113,12 @@ module JsonMend
 
         # Handle duplicate keys by rolling back and injecting a new object opening
         if @context.include?(:array) && object.key?(key)
+          @scanner = StringScanner.new([
+            @scanner.string[0...rollback_index],
+            '{',
+            @scanner.string[rollback_index..-1]
+          ].join)
           @scanner.pos = rollback_index - 1
-          @scanner.string.insert(@scanner.pos + 1, '{')
           break # Exit the main object-parsing loop
         end
 
