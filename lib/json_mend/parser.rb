@@ -790,8 +790,8 @@ module JsonMend
       @scanner.skip(/\s+/)
     end
 
+    # Peeks the next character without advancing the scanner
     def peek_char(offset = 0)
-      # Peeks the next character without advancing the scanner
       rest_of_string = @scanner.rest
       rest_of_string.chars[offset]
     end
