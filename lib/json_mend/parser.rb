@@ -112,7 +112,7 @@ module JsonMend
         # --- End Key Parsing ---
 
         # Handle duplicate keys by rolling back and injecting a new object opening
-        if @context.include?(:array) && object.key?(key)
+        if context_contain?(:array) && object.key?(key)
           # Convert the character-based rollback_index to a byte-based index for string manipulation.
           # We do this by taking the substring up to the character position and getting its byte length.
           byte_rollback_index = @scanner.string.chars[0...rollback_index].join.bytesize
@@ -383,7 +383,7 @@ module JsonMend
           end
         end
 
-        if char == ']' && @context.include?(:array) && string_acc[-1] != rstring_delimiter
+        if char == ']' && context_contain?(:array) && string_acc[-1] != rstring_delimiter
           i = skip_to_character(rstring_delimiter)
           # No delimiter found
           break unless peek_char(i)
@@ -484,9 +484,9 @@ module JsonMend
               # This is because the routine after will make sure to correct any bad guess and this solves a corner case
               check_comma_in_object_value = false if check_comma_in_object_value && next_c.match?(/\p{L}/)
               # If we are in an object context, let's check for the right delimiters
-              if (@context.include?(:object_key) && [':', '}'].include?(next_c)) ||
-                (@context.include?(:object_value) && next_c == '}') ||
-                (@context.include?(:array) && [']', ','].include?(next_c)) ||
+              if (context_contain?(:object_key) && [':', '}'].include?(next_c)) ||
+                (context_contain?(:object_value) && next_c == '}') ||
+                (context_contain?(:array) && [']', ','].include?(next_c)) ||
                 (
                   check_comma_in_object_value &&
                   current_context == :object_value &&
@@ -685,9 +685,9 @@ module JsonMend
       elsif @scanner.scan(%r{//|#})
         # Determine valid line comment termination characters based on context.
         termination_chars = ["\n", "\r"]
-        termination_chars << ']' if @context.include?(:array)
-        termination_chars << '}' if @context.include?(:object_value)
-        termination_chars << ':' if @context.include?(:object_key)
+        termination_chars << ']' if context_contain?(:array)
+        termination_chars << '}' if context_contain?(:object_value)
+        termination_chars << ':' if context_contain?(:object_key)
 
         # Create a regex that will scan until it hits one of the terminators.
         # The terminators are positive lookaheads, so they aren't consumed by the scan.
@@ -793,12 +793,15 @@ module JsonMend
     def peek_char(offset = 0)
       # Peeks the next character without advancing the scanner
       rest_of_string = @scanner.rest
-      characters = rest_of_string.chars
-      characters[offset]
+      rest_of_string.chars[offset]
     end
 
     def current_context
       @context&.last
+    end
+
+    def context_contain?(value)
+      @context.include?(value)
     end
   end
 end
