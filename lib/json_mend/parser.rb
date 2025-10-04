@@ -8,7 +8,7 @@ module JsonMend
   # The core parser that does the heavy lifting of fixing the JSON.
   class Parser
     COMMENT_DELIMETERS = ['#', '/'].freeze
-    NUMBER_CHARS = Set.new("0123456789-.eE/,".chars).freeze
+    NUMBER_CHARS = Set.new('0123456789-.eE/,'.chars).freeze
     STRING_DELIMITERS = ['"', "'", '“', '”'].freeze
 
     def initialize(json_string)
@@ -22,17 +22,17 @@ module JsonMend
 
       unless @scanner.eos?
         json = [json]
-        while !@scanner.eos?
+        until @scanner.eos?
           new_json = parse_json
-          if new_json != ""
+          if new_json.empty?
+            @scanner.getch # continue
+          else
             json.pop if same_object_type?(json.last, new_json)
             json << new_json
-          else
-            @scanner.getch
           end
         end
 
-        json = json.length > 1 ? json : json.first
+        json = json.first if json.length > 1
       end
 
       json
@@ -49,7 +49,7 @@ module JsonMend
         when '['
           @scanner.getch # consume '['
           return parse_array
-        when ->(c) { STRING_DELIMITERS.include?(c) || c&.match?(/[a-zA-Z]/) }
+        when ->(c) { STRING_DELIMITERS.include?(c) || c&.match?(/\p{L}/) }
           return parse_string
         when ->(c) { c&.match?(/\d/) || c == '-' || c == '.' }
           return parse_number
@@ -230,7 +230,7 @@ module JsonMend
       return parse_comment if ['#', '/'].include?(char)
 
       # A valid string can only start with a valid quote or, in our case, with a literal
-      while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char.match?(/[a-zA-Z0-9]/)
+      while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char.match?(/[\p{L}0-9]/)
         @scanner.getch
         char = peek_char
       end
@@ -244,7 +244,7 @@ module JsonMend
       when '“'
         lstring_delimiter = '“'
         rstring_delimiter = '”'
-      when /[a-zA-Z0-9]/
+      when /[\p{L}0-9]/
         # Could be a boolean/null, but not if it's an object key.
         if ["t", "f", "n"].include?(char.downcase) && current_context != :object_key
           # parse_literal is non-destructive if it fails to match.
@@ -482,7 +482,7 @@ module JsonMend
             while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
               # This is a bit of a weird workaround, essentially in object_value context we don't always break on commas
               # This is because the routine after will make sure to correct any bad guess and this solves a corner case
-              check_comma_in_object_value = false if check_comma_in_object_value && next_c.match?(/[a-zA-Z]/)
+              check_comma_in_object_value = false if check_comma_in_object_value && next_c.match?(/\p{L}/)
               # If we are in an object context, let's check for the right delimiters
               if (@context.include?(:object_key) && [':', '}'].include?(next_c)) ||
                 (@context.include?(:object_value) && next_c == '}') ||
@@ -631,7 +631,7 @@ module JsonMend
         scanned_str.chop!
       # Handle cases where what looked like a number is actually a string.
       # e.g., "123-abc"
-      elsif peek_char&.match?(/[a-zA-Z]/)
+      elsif peek_char&.match?(/\p{L}/)
         # Roll back the entire scan and re-parse as a string.
         @scanner.pos -= scanned_str.bytesize
         return parse_string
