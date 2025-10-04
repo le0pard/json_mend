@@ -246,7 +246,7 @@ module JsonMend
         rstring_delimiter = '”'
       when /[\p{L}0-9]/
         # Could be a boolean/null, but not if it's an object key.
-        if ["t", "f", "n"].include?(char.downcase) && current_context != :object_key
+        if ["t", "f", "n"].include?(char.downcase) && !current_context?(:object_key)
           # parse_literal is non-destructive if it fails to match.
           value = parse_literal
           return value if value != ''
@@ -262,9 +262,9 @@ module JsonMend
         next_value = peek_char(1)
 
         if (
-          current_context == :object_key && next_value == ':'
+          current_context?(:object_key) && next_value == ':'
         ) || (
-          current_context == :object_value && [",", "}"].include?(next_value)
+          current_context?(:object_value) && [",", "}"].include?(next_value)
         )
           @scanner.getch
           return ''
@@ -305,11 +305,11 @@ module JsonMend
       # --- Main Parsing Loop ---
       while !@scanner.eos? && char != rstring_delimiter
         if missing_quotes
-          break if current_context == :object_key && (char == ':' || char.match?(/\s/))
-          break if current_context == :array && [']', ','].include?(char)
+          break if current_context?(:object_key) && (char == ':' || char.match?(/\s/))
+          break if current_context?(:array) && [']', ','].include?(char)
         end
 
-        if current_context == :object_value && [',', '}'].include?(char) && (string_acc.empty? || string_acc[-1] != rstring_delimiter)
+        if current_context?(:object_value) && [',', '}'].include?(char) && (string_acc.empty? || string_acc[-1] != rstring_delimiter)
           rstring_delimiter_missing = true
           # check if this is a case in which the closing comma is NOT missing instead
           skip_whitespaces
@@ -427,7 +427,7 @@ module JsonMend
           end
         end
         # If we are in object key context and we find a colon, it could be a missing right quote
-        if (char == ':' && !missing_quotes && current_context == :object_key)
+        if (char == ':' && !missing_quotes && current_context?(:object_key))
           i = skip_to_character(lstring_delimiter, start_idx: 1)
           next_c = peek_char(i)
           break unless next_c
@@ -450,7 +450,7 @@ module JsonMend
         if char == rstring_delimiter && string_acc[-1] != '\\'
           if doubled_quotes && peek_char(1) == rstring_delimiter
             @scanner.getch
-          elsif missing_quotes && current_context == :object_value
+          elsif missing_quotes && current_context?(:object_value)
             i = 1
             next_c = peek_char(i)
             while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
@@ -489,7 +489,7 @@ module JsonMend
                 (context_contain?(:array) && [']', ','].include?(next_c)) ||
                 (
                   check_comma_in_object_value &&
-                  current_context == :object_value &&
+                  current_context?(:object_value) &&
                   next_c == ','
                 )
                 break
@@ -500,7 +500,7 @@ module JsonMend
             end
 
             # If we stopped for a comma in object_value context, let's check if find a "} at the end of the string
-            if next_c == ',' && current_context == :object_value
+            if next_c == ',' && current_context?(:object_value)
               i += 1
               i = skip_to_character(rstring_delimiter, start_idx: i)
               next_c = peek_char(i)
@@ -518,7 +518,7 @@ module JsonMend
               # Check if self.index:self.index+i is only whitespaces, break if that's the case
               break if (1..i).all? { |j| peek_char(j).to_s.match(/\s/) }
 
-              if current_context == :object_value
+              if current_context?(:object_value)
                 i = skip_whitespaces_at(start_idx: i + 1)
                 if peek_char(i) == ','
                   # So we found a comma, this could be a case of a single quote like "va"lue",
@@ -560,7 +560,7 @@ module JsonMend
                   @scanner.getch # Consume the character
                   char = peek_char
                 end
-              elsif current_context == :array
+              elsif current_context?(:array)
                 # So here we can have a few valid cases:
                 # ["bla bla bla "puppy" bla bla bla "kitty" bla bla"]
                 # ["value1" value2", "value3"]
@@ -584,7 +584,7 @@ module JsonMend
                 string_acc << char.to_s
                 @scanner.getch # Consume the character
                 char = peek_char
-              elsif current_context == :object_key
+              elsif current_context?(:object_key)
                 string_acc << char.to_s
                 @scanner.getch # Consume the character
                 char = peek_char
@@ -595,7 +595,7 @@ module JsonMend
         end
       end
 
-      if !@scanner.eos? && missing_quotes && current_context == :object_key && char.match(/\s/)
+      if !@scanner.eos? && missing_quotes && current_context?(:object_key) && char.match(/\s/)
         skip_whitespaces
         return '' unless [':', ','].include?(peek_char)
       end
@@ -619,7 +619,7 @@ module JsonMend
     # inputs that might be generated by LLMs
     def parse_number
       allowed_chars = NUMBER_CHARS.dup
-      allowed_chars.delete(',') if current_context == :array
+      allowed_chars.delete(',') if current_context?(:array)
       regex = /[#{Regexp.escape(allowed_chars.to_a.join)}]+/
 
       scanned_str = @scanner.scan(regex)
@@ -641,7 +641,7 @@ module JsonMend
       # Use rescue to handle conversion errors gracefully, returning the original string.
       begin
         if scanned_str.include?(',')
-          return scanned_str.to_s
+          scanned_str.to_s
         elsif scanned_str.match?(/[\.eE]/)
           Float(scanned_str)
         else
@@ -698,7 +698,7 @@ module JsonMend
       else
         # The character at the current position (likely '/') is not the start of a
         # valid comment. To prevent an infinite loop in the calling parser, we must
-        # consume this single stray character before exiting.
+        # consume this single stray character before exiting
         @scanner.getch
       end
 
@@ -796,8 +796,8 @@ module JsonMend
       rest_of_string.chars[offset]
     end
 
-    def current_context
-      @context&.last
+    def current_context?(value)
+      @context&.last == value
     end
 
     def context_contain?(value)
