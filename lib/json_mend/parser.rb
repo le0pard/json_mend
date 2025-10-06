@@ -24,7 +24,7 @@ module JsonMend
         json = [json]
         until @scanner.eos?
           new_json = parse_json
-          if new_json.empty?
+          if new_json == ''
             @scanner.getch # continue
           else
             json.pop if same_object_type?(json.last, new_json)
@@ -64,112 +64,234 @@ module JsonMend
     # Parses a JSON object.
     def parse_object
       object = {}
-      while !@scanner.scan('}') && !@scanner.eos?
+
+      loop do
         skip_whitespaces
 
-        # Sometimes LLMs do weird things, if we find a ":" so early, we'll change it to "," and move on
-        @scanner.scan(':')
+        # >> PRIMARY EXIT: End of object or end of string.
+        break if @scanner.eos? || @scanner.scan(/\}/)
 
-        # We are now searching for they string key
-        # Context is used in the string parser to manage the lack of quotes
-        @context.push(:object_key)
+        # Leniently consume any leading junk characters (like stray commas or colons)
+        # that might appear before a key.
+        @scanner.skip(/[,\s:]+/)
 
-        # Save this index in case we need find a duplicate key
-        rollback_index = @scanner.charpos
+        # --- Delegate to a helper to parse the next Key-Value pair ---
+        key, value = parse_object_pair(object)
 
-        # --- Key Parsing ---
-        key = ''
-        while !@scanner.eos?
-          rollback_index = @scanner.charpos # Update rollback position
-          # Is this an array?
-          # Need to check if the previous parsed value contained in obj is an array and in that case parse and merge the two
-          if key.empty? && peek_char == '['
-            prev_key = object.keys.last
-            if prev_key && object[prev_key].is_a?(Array)
-              @scanner.getch # consume '['
-              new_array = parse_array
-              if new_array.is_a?(Array)
-                to_merge = new_array.length == 1 && new_array[0].is_a?(Array) ? new_array[0] : new_array
-                object[prev_key].concat(to_merge)
+        # If the helper returns nil for the key, it signals that we should
+        # stop parsing this object (e.g., a duplicate key was found,
+        # indicating the start of a new object).
+        break if key.nil?
 
-                skip_whitespaces
-
-                @scanner.scan(',') # consume optional comma
-                skip_whitespaces
-
-                was_array_merged = true
-                next
-              end
-            end
-          end
-
-          key = parse_string.to_s
-          skip_whitespaces if key.empty?
-
-          # If the string is empty but there is a object divider, we are done here
-          break if !key.empty? || (key.empty? && [':', '}'].include?(peek_char))
-        end
-        # --- End Key Parsing ---
-
-        # Handle duplicate keys by rolling back and injecting a new object opening
-        if context_contain?(:array) && object.key?(key)
-          # Convert the character-based rollback_index to a byte-based index for string manipulation.
-          # We do this by taking the substring up to the character position and getting its byte length.
-          byte_rollback_index = @scanner.string.chars[0...rollback_index].join.bytesize
-
-          # Now, use the byte-based index for all string slicing and scanner positioning.
-          @scanner = StringScanner.new([
-            @scanner.string.byteslice(0...byte_rollback_index),
-            '{',
-            @scanner.string.byteslice(byte_rollback_index..-1)
-          ].join)
-
-          # Set the scanner's position to the new byte index.
-          @scanner.pos = byte_rollback_index
-          break # Exit the main object-parsing loop
-        end
-
-        skip_whitespaces
-        next if @scanner.eos? || peek_char == '}' # End of object
-
-        skip_whitespaces
-
-        @scanner.scan(':') # Handle missing ':' after a key
-
-        @context.pop
-        @context.push(:object_value)
-
-        skip_whitespaces
-
-        value = ''
-        # Handle stray comma or empty value before closing brace.
-        value = parse_json unless [',', '}'].include?(peek_char)
-
-        @context.pop
-        object[key] = value
-
-        skip_whitespaces
-
-        # Consume trailing comma or quotes.
-        @scanner.scan(/[,'"]/)
-        skip_whitespaces
+        # Assign the parsed pair to our object, avoiding empty keys.
+        object[key] = value unless key.empty?
       end
 
-      return object unless @context.empty? # Don't do this in a nested context
-
-      skip_whitespaces
-
-      return object unless @scanner.scan(',')
-
-      skip_whitespaces
-      return object unless STRING_DELIMITERS.include?(peek_char)
-
-      # Recursively call parse_object to handle the extra pairs.
-      # This relies on the parser's lenient behavior of not requiring a leading '{'.
-      additional_obj = parse_object
-      object.merge!(additional_obj) if additional_obj.is_a?(Hash)
-
       object
+    end
+    # def parse_object
+    #   object = {}
+    #   while !@scanner.scan('}') && !@scanner.eos?
+    #     skip_whitespaces
+
+    #     # Sometimes LLMs do weird things, if we find a ":" so early, we'll change it to "," and move on
+    #     @scanner.scan(':')
+
+    #     # We are now searching for they string key
+    #     # Context is used in the string parser to manage the lack of quotes
+    #     @context.push(:object_key)
+
+    #     # Save this index in case we need find a duplicate key
+    #     rollback_index = @scanner.charpos
+
+    #     # --- Key Parsing ---
+    #     key = ''
+    #     while !@scanner.eos?
+    #       rollback_index = @scanner.charpos # Update rollback position
+    #       # Is this an array?
+    #       # Need to check if the previous parsed value contained in obj is an array and in that case parse and merge the two
+    #       if key.empty? && peek_char == '['
+    #         prev_key = object.keys.last
+    #         if prev_key && object[prev_key].is_a?(Array)
+    #           @scanner.getch # consume '['
+    #           new_array = parse_array
+    #           if new_array.is_a?(Array)
+    #             to_merge = new_array.length == 1 && new_array[0].is_a?(Array) ? new_array[0] : new_array
+    #             object[prev_key].concat(to_merge)
+
+    #             skip_whitespaces
+
+    #             @scanner.scan(',') # consume optional comma
+    #             skip_whitespaces
+
+    #             was_array_merged = true
+    #             next
+    #           end
+    #         end
+    #       end
+
+    #       key = parse_string.to_s
+    #       skip_whitespaces if key.empty?
+
+    #       # If the string is empty but there is a object divider, we are done here
+    #       break if !key.empty? || (key.empty? && [':', '}'].include?(peek_char))
+    #     end
+    #     # --- End Key Parsing ---
+
+    #     # Handle duplicate keys by rolling back and injecting a new object opening
+    #     if context_contain?(:array) && object.key?(key)
+    #       # Convert the character-based rollback_index to a byte-based index for string manipulation.
+    #       # We do this by taking the substring up to the character position and getting its byte length.
+    #       byte_rollback_index = @scanner.string.chars[0...rollback_index].join.bytesize
+
+    #       # Now, use the byte-based index for all string slicing and scanner positioning.
+    #       @scanner = StringScanner.new([
+    #         @scanner.string.byteslice(0...byte_rollback_index),
+    #         '{',
+    #         @scanner.string.byteslice(byte_rollback_index..-1)
+    #       ].join)
+
+    #       # Set the scanner's position to the new byte index.
+    #       @scanner.pos = byte_rollback_index
+    #       break # Exit the main object-parsing loop
+    #     end
+
+    #     skip_whitespaces
+    #     next if @scanner.eos? || peek_char == '}' # End of object
+
+    #     skip_whitespaces
+
+    #     @scanner.scan(':') # Handle missing ':' after a key
+
+    #     @context.pop
+    #     @context.push(:object_value)
+
+    #     skip_whitespaces
+
+    #     value = ''
+    #     # Handle stray comma or empty value before closing brace.
+    #     value = parse_json unless [',', '}'].include?(peek_char)
+
+    #     @context.pop
+    #     object[key] = value
+
+    #     skip_whitespaces
+
+    #     # Consume trailing comma or quotes.
+    #     @scanner.scan(/[,'"]/)
+    #     skip_whitespaces
+    #   end
+
+    #   return object unless @context.empty? # Don't do this in a nested context
+
+    #   skip_whitespaces
+
+    #   return object unless @scanner.scan(',')
+
+    #   skip_whitespaces
+    #   return object unless STRING_DELIMITERS.include?(peek_char)
+
+    #   # Recursively call parse_object to handle the extra pairs.
+    #   # This relies on the parser's lenient behavior of not requiring a leading '{'.
+    #   additional_obj = parse_object
+    #   object.merge!(additional_obj) if additional_obj.is_a?(Hash)
+
+    #   object
+    # end
+
+    # Attempts to parse a single key-value pair.
+    # Returns [key, value] on success, or [nil, nil] if parsing should stop.
+    def parse_object_pair(object)
+      # --- 1. Parse the Key ---
+      # This step includes the complex logic for merging dangling arrays.
+      pos_before_key = @scanner.pos
+      key, was_array_merged = parse_object_key(object)
+
+      # If an array was merged, there's no K/V pair to process, so we restart the loop.
+      return [nil, nil] if was_array_merged
+
+      # If we get an empty key and the next character is a closing brace, we're done.
+      return [nil, nil] if key.empty? && peek_char == '}'
+
+      # --- 2. Handle Duplicate Keys (Safer Method) ---
+      # This is a critical repair for lists of objects missing a comma separator.
+      if object.key?(key)
+        # Instead of rewriting the string, we safely rewind the scanner to the
+        # position before the duplicate key. This ends the parsing of the current
+        # object, allowing the top-level parser to see the duplicate key as the
+        # start of a new JSON object.
+        @scanner.pos = pos_before_key
+        return [nil, nil] # Signal to stop parsing this object.
+      end
+
+      # --- 3. Parse the Separator (:) ---
+      skip_whitespaces
+      @scanner.skip(/:/) # Leniently skip the colon if it exists.
+
+      # --- 4. Parse the Value ---
+      value = parse_object_value
+
+      [key, value]
+    end
+
+    # Parses the key of an object, including the special logic for merging dangling arrays.
+    # Returns [key, was_array_merged_flag]
+    def parse_object_key(object)
+      key = ''
+      # First, check for and handle the dangling array merge logic.
+      if try_to_merge_dangling_array(object)
+        return [nil, true] # Signal that an array was merged.
+      end
+
+      # If no merge happened, proceed with standard key parsing.
+      @context.push(:object_key)
+      key = parse_string.to_s
+      @context.pop
+
+      # If the key is empty, consume any stray characters to prevent infinite loops.
+      if key.empty? && !@scanner.check(/[:}]/) && !@scanner.eos?
+        @scanner.getch
+      end
+
+      [key, false] # Signal that a key was parsed.
+    end
+
+    # Parses the value part of a key-value pair.
+    def parse_object_value
+      @context.push(:object_value)
+      skip_whitespaces
+
+      # Handle cases where the value is missing (e.g., "key": } or "key": ,)
+      if @scanner.check(/[,\}]/)
+        @context.pop
+        return # Represent missing values as null.
+      end
+
+      # Delegate to the main JSON value parser.
+      value = parse_json
+      @context.pop
+      value
+    end
+
+    # Encapsulates the logic for merging an array that appears without a key.
+    def try_to_merge_dangling_array(object)
+      return false unless peek_char == '['
+
+      prev_key = object.keys.last
+      return false unless prev_key && object[prev_key].is_a?(Array)
+
+      @scanner.getch # Consume '['
+      new_array = parse_array
+      return false unless new_array.is_a?(Array)
+
+      to_merge = new_array.length == 1 && new_array.first.is_a?(Array) ? new_array.first : new_array
+      object[prev_key].concat(to_merge)
+
+      skip_whitespaces
+      @scanner.skip(',')
+      skip_whitespaces
+
+      true
     end
 
     # Parses a JSON array from the string.
