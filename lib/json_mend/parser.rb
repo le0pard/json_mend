@@ -321,6 +321,7 @@ module JsonMend
         if is_strictly_empty(value)
           @scanner.getch
         elsif value == "..." && @scanner.string.chars[@scanner.charpos - 1] == '.'
+          # just skip
         else
           arr << value
         end
@@ -437,71 +438,72 @@ module JsonMend
           skip_whitespaces
           if peek_char(1) == '\\'
             # Ok this is a quoted string, skip
-            rstring_delimiter_missing = true
-            i = skip_to_character(rstring_delimiter, start_idx: 1)
+            rstring_delimiter_missing = false
+          end
+
+          i = skip_to_character(rstring_delimiter, start_idx: 1)
+          next_c = peek_char(i)
+          if next_c
+            i += 1
+            # found a delimiter, now we need to check that is followed strictly by a comma or brace
+            # or the string ended
+            i = skip_whitespaces_at(start_idx: i)
             next_c = peek_char(i)
-            if next_c
-              i += 1
-              # found a delimiter, now we need to check that is followed strictly by a comma or brace
-              # or the string ended
-              i = skip_whitespaces_at(start_idx: i)
+            if next_c.nil? || [',', '}'].include?(next_c)
+              rstring_delimiter_missing = false
+            else
+              # OK but this could still be some garbage at the end of the string
+              # So we need to check if we find a new lstring_delimiter afterwards
+              # If we do, maybe this is a missing delimiter
+              i = skip_to_character(lstring_delimiter, start_idx: i)
               next_c = peek_char(i)
-              if next_c.nil? || [',', '}'].include?(next_c)
+              if next_c.nil?
                 rstring_delimiter_missing = false
               else
-                # OK but this could still be some garbage at the end of the string
-                # So we need to check if we find a new lstring_delimiter afterwards
-                # If we do, maybe this is a missing delimiter
-                i = skip_to_character(lstring_delimiter, start_idx: i)
+                # But again, this could just be something a bit stupid like "lorem, "ipsum" sic"
+                # Check if we find a : afterwards (skipping space)
+                i = skip_whitespaces_at(start_idx: i + 1)
                 next_c = peek_char(i)
-                if next_c.nil?
+                if next_c && next_c != ":"
                   rstring_delimiter_missing = false
-                else
-                  # But again, this could just be something a bit stupid like "lorem, "ipsum" sic"
-                  # Check if we find a : afterwards (skipping space)
-                  i = skip_whitespaces_at(start_idx: i + 1)
-                  next_c = peek_char(i)
-                  if next_c && next_c != ":"
-                    rstring_delimiter_missing = false
-                  end
-                end
-              end
-            else
-              # There could be a case in which even the next key:value is missing delimeters
-              # because it might be a systemic issue with the output
-              # So let's check if we can find a : in the string instead
-              i = skip_to_character(':', start_idx: 1)
-              next_c = peek_char(i)
-              if next_c
-                # OK then this is a systemic issue with the output
-                break
-              else
-                # skip any whitespace first
-                i = skip_whitespaces_at(start_idx: 1)
-                # We couldn't find any rstring_delimeter before the end of the string
-                # check if this is the last string of an object and therefore we can keep going
-                # make an exception if this is the last char before the closing brace
-                j = skip_to_character('}', start_idx: i)
-                if j - i > 1
-                  # Ok it's not right after the comma
-                  # Let's ignore
-                  rstring_delimiter_missing = false
-                elsif peek_char(j)
-                  # Check for an unmatched opening brace in string_acc
-                  string_acc.reverse.chars.each do |c|
-                    if c == '{'
-                      # Ok then this is part of the string
-                      rstring_delimiter_missing = false
-                      break
-                    end
-                  end
                 end
               end
             end
-
-            if rstring_delimiter_missing
+          else
+            # There could be a case in which even the next key:value is missing delimeters
+            # because it might be a systemic issue with the output
+            # So let's check if we can find a : in the string instead
+            i = skip_to_character(':', start_idx: 1)
+            next_c = peek_char(i)
+            if next_c
+              # OK then this is a systemic issue with the output
               break
+            else
+              # skip any whitespace first
+              i = skip_whitespaces_at(start_idx: 1)
+              # We couldn't find any rstring_delimeter before the end of the string
+              # check if this is the last string of an object and therefore we can keep going
+              # make an exception if this is the last char before the closing brace
+              j = skip_to_character('}', start_idx: i)
+              if j - i > 1
+                # Ok it's not right after the comma
+                # Let's ignore
+                rstring_delimiter_missing = false
+              elsif peek_char(j)
+                # Check for an unmatched opening brace in string_acc
+                string_acc.reverse.chars.each do |c|
+                  if c == '{'
+                    # Ok then this is part of the string
+                    rstring_delimiter_missing = false
+                    break
+                  end
+                end
+              end
             end
+          end
+
+          if rstring_delimiter_missing
+            break
           end
         end
 
@@ -509,6 +511,14 @@ module JsonMend
           i = skip_to_character(rstring_delimiter)
           # No delimiter found
           break unless peek_char(i)
+        end
+
+        if current_context?(:object_value) && char == '}'
+          # We found the end of an object while parsing a value
+          # Check if the object is really over, to avoid doubling the closing brace
+          i = skip_whitespaces_at(start_idx: 1)
+          next_c = peek_char(i)
+          break unless next_c
         end
 
         string_acc << char
