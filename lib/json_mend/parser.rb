@@ -327,7 +327,7 @@ module JsonMend
         end
 
         char = peek_char
-        while char && char != "]" && (char.match?(/\s/) or char == ",")
+        while char && char != "]" && (char.match?(/\s/) || char == ",")
           @scanner.getch
           char = peek_char
         end
@@ -558,6 +558,7 @@ module JsonMend
             next
           end
         end
+
         # If we are in object key context and we find a colon, it could be a missing right quote
         if (char == ':' && !missing_quotes && current_context?(:object_key))
           i = skip_to_character(lstring_delimiter, start_idx: 1)
@@ -706,8 +707,6 @@ module JsonMend
                     even_delimiters = false
                     break
                   end
-                  i = skip_to_character([rstring_delimiter, ']'], start_idx: i + 1)
-                  next_c = peek_char(i)
                 end
 
                 break unless even_delimiters
