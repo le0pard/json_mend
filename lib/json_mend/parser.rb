@@ -232,7 +232,7 @@ module JsonMend
       # --- 1. Parse the Key ---
       # This step includes the complex logic for merging dangling arrays.
       pos_before_key = @scanner.pos
-      key, was_array_merged = parse_object_key(object)
+      key, was_array_merged, is_bracketed = parse_object_key(object)
 
       # If an array was merged, there's no K/V pair to process, so we restart the loop.
       return [nil, nil] if was_array_merged
@@ -256,7 +256,7 @@ module JsonMend
       colon_found = @scanner.skip(/:/) # Leniently skip the colon if it exists.
 
       # --- 4. Parse the Value ---
-      value = parse_object_value(colon_found)
+      value = parse_object_value(colon_found || is_bracketed)
 
       if value == :inferred_true
         return [nil, nil] if %w[true false null].include?(key.downcase)
@@ -272,18 +272,27 @@ module JsonMend
     def parse_object_key(object)
       # First, check for and handle the dangling array merge logic.
       if try_to_merge_dangling_array(object)
-        return [nil, true] # Signal that an array was merged.
+        return [nil, true, false] # Signal that an array was merged.
       end
 
       # If no merge happened, proceed with standard key parsing.
       @context.push(:object_key)
-      key = parse_string.to_s
+      is_bracketed = false
+
+      if peek_char == '['
+        @scanner.getch # Consume '['
+        arr = parse_array
+        key = arr.first.to_s
+        is_bracketed = true
+      else
+        key = parse_string.to_s
+      end
       @context.pop
 
       # If the key is empty, consume any stray characters to prevent infinite loops.
       @scanner.getch if key.empty? && !@scanner.check(/[:}]/) && !@scanner.eos?
 
-      [key, false] # Signal that a key was parsed.
+      [key, false, is_bracketed] # Signal that a key was parsed.
     end
 
     # Parses the value part of a key-value pair.
