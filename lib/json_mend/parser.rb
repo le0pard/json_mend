@@ -804,6 +804,11 @@ module JsonMend
         return parse_string
       end
 
+      # Sometimes numbers are followed by a quote, which is garbage
+      if peek_char == '"'
+        @scanner.getch
+      end
+
       # Attempt to convert the string to the appropriate number type.
       # Use rescue to handle conversion errors gracefully, returning the original string.
       begin
