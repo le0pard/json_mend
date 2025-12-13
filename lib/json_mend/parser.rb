@@ -93,6 +93,7 @@ module JsonMend
 
         # --- Delegate to a helper to parse the next Key-Value pair ---
         key, value = parse_object_pair(object)
+        next if key == :merged_array
 
         # If the helper returns nil for the key, it signals that we should
         # stop parsing this object (e.g., a duplicate key was found,
@@ -235,7 +236,7 @@ module JsonMend
       key, was_array_merged, is_bracketed = parse_object_key(object)
 
       # If an array was merged, there's no K/V pair to process, so we restart the loop.
-      return [nil, nil] if was_array_merged
+      return [:merged_array, nil] if was_array_merged
 
       # If we get an empty key and the next character is a closing brace, we're done.
       return [nil, nil] if key.empty? && (peek_char.nil? || peek_char == '}')
