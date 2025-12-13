@@ -121,115 +121,6 @@ module JsonMend
 
       object
     end
-    # def parse_object
-    #   object = {}
-    #   while !@scanner.scan('}') && !@scanner.eos?
-    #     skip_whitespaces
-
-    #     # Sometimes LLMs do weird things, if we find a ":" so early, we'll change it to "," and move on
-    #     @scanner.scan(':')
-
-    #     # We are now searching for they string key
-    #     # Context is used in the string parser to manage the lack of quotes
-    #     @context.push(:object_key)
-
-    #     # Save this index in case we need find a duplicate key
-    #     rollback_index = @scanner.charpos
-
-    #     # --- Key Parsing ---
-    #     key = ''
-    #     while !@scanner.eos?
-    #       rollback_index = @scanner.charpos # Update rollback position
-    #       # Is this an array?
-    #       # Need to check if the previous parsed value contained in obj is an array and in that case parse and merge the two
-    #       if key.empty? && peek_char == '['
-    #         prev_key = object.keys.last
-    #         if prev_key && object[prev_key].is_a?(Array)
-    #           @scanner.getch # consume '['
-    #           new_array = parse_array
-    #           if new_array.is_a?(Array)
-    #             to_merge = new_array.length == 1 && new_array[0].is_a?(Array) ? new_array[0] : new_array
-    #             object[prev_key].concat(to_merge)
-
-    #             skip_whitespaces
-
-    #             @scanner.scan(',') # consume optional comma
-    #             skip_whitespaces
-
-    #             was_array_merged = true
-    #             next
-    #           end
-    #         end
-    #       end
-
-    #       key = parse_string.to_s
-    #       skip_whitespaces if key.empty?
-
-    #       # If the string is empty but there is a object divider, we are done here
-    #       break if !key.empty? || (key.empty? && [':', '}'].include?(peek_char))
-    #     end
-    #     # --- End Key Parsing ---
-
-    #     # Handle duplicate keys by rolling back and injecting a new object opening
-    #     if context_contain?(:array) && object.key?(key)
-    #       # Convert the character-based rollback_index to a byte-based index for string manipulation.
-    #       # We do this by taking the substring up to the character position and getting its byte length.
-    #       byte_rollback_index = @scanner.string.chars[0...rollback_index].join.bytesize
-
-    #       # Now, use the byte-based index for all string slicing and scanner positioning.
-    #       @scanner = StringScanner.new([
-    #         @scanner.string.byteslice(0...byte_rollback_index),
-    #         '{',
-    #         @scanner.string.byteslice(byte_rollback_index..-1)
-    #       ].join)
-
-    #       # Set the scanner's position to the new byte index.
-    #       @scanner.pos = byte_rollback_index
-    #       break # Exit the main object-parsing loop
-    #     end
-
-    #     skip_whitespaces
-    #     next if @scanner.eos? || peek_char == '}' # End of object
-
-    #     skip_whitespaces
-
-    #     @scanner.scan(':') # Handle missing ':' after a key
-
-    #     @context.pop
-    #     @context.push(:object_value)
-
-    #     skip_whitespaces
-
-    #     value = ''
-    #     # Handle stray comma or empty value before closing brace.
-    #     value = parse_json unless [',', '}'].include?(peek_char)
-
-    #     @context.pop
-    #     object[key] = value
-
-    #     skip_whitespaces
-
-    #     # Consume trailing comma or quotes.
-    #     @scanner.scan(/[,'"]/)
-    #     skip_whitespaces
-    #   end
-
-    #   return object unless @context.empty? # Don't do this in a nested context
-
-    #   skip_whitespaces
-
-    #   return object unless @scanner.scan(',')
-
-    #   skip_whitespaces
-    #   return object unless STRING_DELIMITERS.include?(peek_char)
-
-    #   # Recursively call parse_object to handle the extra pairs.
-    #   # This relies on the parser's lenient behavior of not requiring a leading '{'.
-    #   additional_obj = parse_object
-    #   object.merge!(additional_obj) if additional_obj.is_a?(Hash)
-
-    #   object
-    # end
 
     # Attempts to parse a single key-value pair.
     # Returns [key, value] on success, or [nil, nil] if parsing should stop.
@@ -501,7 +392,11 @@ module JsonMend
 
           i = skip_to_character(rstring_delimiter, start_idx: 1)
           next_c = peek_char(i)
-          if next_c
+
+          is_gap_clean = true
+          is_gap_clean = (1...i).all? { |k| peek_char(k)&.match?(/\s/) } if missing_quotes && next_c
+
+          if next_c && is_gap_clean
             i += 1
             # found a delimiter, now we need to check that is followed strictly by a comma or brace
             # or the string ended
@@ -525,6 +420,8 @@ module JsonMend
                 rstring_delimiter_missing = false if next_c && next_c != ':'
               end
             end
+          elsif next_c
+            rstring_delimiter_missing = false
           else
             # There could be a case in which even the next key:value is missing delimeters
             # because it might be a systemic issue with the output
