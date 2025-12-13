@@ -85,7 +85,7 @@ module JsonMend
         skip_whitespaces
 
         # >> PRIMARY EXIT: End of object or end of string.
-        break if @scanner.eos? || @scanner.scan(/\}/)
+        break if @scanner.eos? || @scanner.scan(/\}/) || peek_char == ']'
 
         # Leniently consume any leading junk characters (like stray commas or colons)
         # that might appear before a key.
@@ -97,7 +97,10 @@ module JsonMend
         # If the helper returns nil for the key, it signals that we should
         # stop parsing this object (e.g., a duplicate key was found,
         # indicating the start of a new object).
-        break if key.nil?
+        if key.nil?
+          @scanner.scan(/\}/)
+          break
+        end
 
         # Assign the parsed pair to our object, avoiding empty keys.
         skip_whitespaces
@@ -235,7 +238,7 @@ module JsonMend
       return [nil, nil] if was_array_merged
 
       # If we get an empty key and the next character is a closing brace, we're done.
-      return [nil, nil] if key.empty? && peek_char == '}'
+      return [nil, nil] if key.empty? && (peek_char.nil? || peek_char == '}')
 
       # --- 2. Handle Duplicate Keys (Safer Method) ---
       # This is a critical repair for lists of objects missing a comma separator.
@@ -380,6 +383,10 @@ module JsonMend
 
       # A valid string can only start with a valid quote or, in our case, with a literal
       while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char.match?(/[\p{L}0-9]/)
+        if ['{', '}', '[', ']', ':', ','].include?(char)
+          return ''
+        end
+
         @scanner.getch
         char = peek_char
       end
@@ -455,6 +462,7 @@ module JsonMend
       while !@scanner.eos? && char != rstring_delimiter
         if missing_quotes
           break if current_context?(:object_key) && (char == ':' || char.match?(/\s/))
+          break if current_context?(:object_key) && [']', '}'].include?(char)
           break if current_context?(:array) && [']', ','].include?(char)
         end
 
@@ -832,7 +840,7 @@ module JsonMend
       if @scanner.scan(%r{/\*})
         # Scan until the closing delimiter is found.
         # The `lazy` quantifier `*?` ensures we stop at the *first* `*/`.
-        @scanner.scan_until(%r{\*/})
+        @scanner.scan_until(%r{\*/}) || @scanner.terminate
 
       # Check for a line comment `//...` or `#...`
       elsif @scanner.scan(%r{//|#})
