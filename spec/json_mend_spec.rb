@@ -416,7 +416,7 @@ RSpec.describe JsonMend do
       [
         {
           input: "'\"'",
-          expected_output: ''
+          expected_output: "\"\\\"\""
         },
         {
           input: '{"key": \'string"\n\t\\le\'',

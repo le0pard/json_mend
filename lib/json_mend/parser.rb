@@ -258,6 +258,12 @@ module JsonMend
       # --- 4. Parse the Value ---
       value = parse_object_value(colon_found)
 
+      if value == :inferred_true
+        return [nil, nil] if ['true', 'false', 'null'].include?(key.downcase)
+
+        value = true
+      end
+
       [key, value]
     end
 
@@ -291,7 +297,7 @@ module JsonMend
       # Handle cases where the value is missing (e.g., "key": } or "key": ,)
       if @scanner.eos? || @scanner.check(/[,\}]/)
         @context.pop
-        return colon_found ? '' : true
+        return colon_found ? '' : :inferred_true
       end
 
       # Delegate to the main JSON value parser.
