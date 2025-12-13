@@ -358,7 +358,7 @@ module JsonMend
           value = parse_json
         end
 
-        if is_strictly_empty(value)
+        if strictly_empty?(value)
           @scanner.getch
         elsif value == '...' && @scanner.string[@scanner.charpos - 1] == '.'
           # just skip
@@ -977,7 +977,7 @@ module JsonMend
       (obj1.is_a?(Array) && obj2.is_a?(Array)) || (obj1.is_a?(Hash) && obj2.is_a?(Hash))
     end
 
-    def is_strictly_empty(value)
+    def strictly_empty?(value)
       # Check if the value is a container AND if it's empty.
       [String, Array, Hash, Set].any? { |klass| value.is_a?(klass) } && value.empty?
     end
