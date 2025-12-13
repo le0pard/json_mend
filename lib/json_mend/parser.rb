@@ -30,6 +30,9 @@ module JsonMend
             # Found nothing but EOS
             break
           else
+            # Ignore strings that look like closing braces garbage (e.g. "}", " ] ")
+            next if new_json.is_a?(String) && new_json.strip.match?(/^[}\]]+$/)
+
             json.pop if same_object_type?(json.last, new_json)
             json << new_json
           end
@@ -92,8 +95,8 @@ module JsonMend
         @scanner.skip(/[,\s:]+/)
 
         # --- Delegate to a helper to parse the next Key-Value pair ---
-        key, value = parse_object_pair(object)
-        next if key == :merged_array
+        key, value, colon_found = parse_object_pair(object)
+        next if %i[merged_array stray_colon].include?(key)
 
         # If the helper returns nil for the key, it signals that we should
         # stop parsing this object (e.g., a duplicate key was found,
@@ -104,8 +107,9 @@ module JsonMend
         end
 
         # Assign the parsed pair to our object, avoiding empty keys.
+        # But only if we didn't firmly establish the key with a colon already.
         skip_whitespaces
-        if peek_char == ':'
+        if peek_char == ':' && !colon_found
           key = value.to_s
           @scanner.getch # consume ':'
           value = parse_object_value
@@ -236,10 +240,18 @@ module JsonMend
       key, was_array_merged, is_bracketed = parse_object_key(object)
 
       # If an array was merged, there's no K/V pair to process, so we restart the loop.
-      return [:merged_array, nil] if was_array_merged
+      return [:merged_array, nil, false] if was_array_merged
+
+      # Check for a stray colon: invalid structure where we have no key (and no quotes consumed) but see a colon.
+      # This handles cases like: { "key": "value", : "garbage" }
+      if key.empty? && (@scanner.pos == pos_before_key) && peek_char == ':'
+        @scanner.getch # Skip ':'
+        parse_object_value # Consume and discard the value
+        return [:stray_colon, nil, false]
+      end
 
       # If we get an empty key and the next character is a closing brace, we're done.
-      return [nil, nil] if key.empty? && (peek_char.nil? || peek_char == '}')
+      return [nil, nil, false] if key.empty? && (peek_char.nil? || peek_char == '}')
 
       # --- 2. Handle Duplicate Keys (Safer Method) ---
       # This is a critical repair for lists of objects missing a comma separator.
@@ -249,7 +261,7 @@ module JsonMend
         # object, allowing the top-level parser to see the duplicate key as the
         # start of a new JSON object.
         @scanner.pos = pos_before_key
-        return [nil, nil] # Signal to stop parsing this object.
+        return [nil, nil, false] # Signal to stop parsing this object.
       end
 
       # --- 3. Parse the Separator (:) ---
@@ -260,12 +272,12 @@ module JsonMend
       value = parse_object_value(colon_found || is_bracketed)
 
       if value == :inferred_true
-        return [nil, nil] if %w[true false null].include?(key.downcase)
+        return [nil, nil, false] if %w[true false null].include?(key.downcase)
 
         value = true
       end
 
-      [key, value]
+      [key, value, colon_found]
     end
 
     # Parses the key of an object, including the special logic for merging dangling arrays.
