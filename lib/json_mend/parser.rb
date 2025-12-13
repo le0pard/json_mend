@@ -26,13 +26,16 @@ module JsonMend
           new_json = parse_json
           if new_json == ''
             @scanner.getch # continue
+          elsif new_json.nil?
+            # Found nothing but EOS
+            break
           else
             json.pop if same_object_type?(json.last, new_json)
             json << new_json
           end
         end
 
-        json = json.first if json.length > 1
+        json = json.first if json.length == 1
       end
 
       json
@@ -50,9 +53,22 @@ module JsonMend
           @scanner.getch # consume '['
           return parse_array
         when ->(c) { STRING_DELIMITERS.include?(c) || c&.match?(/\p{L}/) }
+          if @context.empty? && !STRING_DELIMITERS.include?(peek_char)
+            # Top level unquoted string strictness:
+            # Only allow literals (true/false/null), ignore other text as garbage.
+            val = parse_literal
+            return val if val != ''
+
+            @scanner.getch
+            next
+          end
+
           return parse_string
         when ->(c) { c&.match?(/\d/) || c == '-' || c == '.' }
-          return parse_number
+          val = parse_number
+          return val unless val == ''
+
+          @scanner.getch
         when *COMMENT_DELIMETERS
           return parse_comment
         else
@@ -84,7 +100,15 @@ module JsonMend
         break if key.nil?
 
         # Assign the parsed pair to our object, avoiding empty keys.
-        object[key] = value unless key.empty?
+        skip_whitespaces
+        if peek_char == ':'
+          key = value.to_s
+          @scanner.getch # consume ':'
+          value = parse_object_value
+        end
+
+        # Assign the parsed pair to our object.
+        object[key] = value
       end
 
       object
@@ -226,10 +250,10 @@ module JsonMend
 
       # --- 3. Parse the Separator (:) ---
       skip_whitespaces
-      @scanner.skip(/:/) # Leniently skip the colon if it exists.
+      colon_found = @scanner.skip(/:/) # Leniently skip the colon if it exists.
 
       # --- 4. Parse the Value ---
-      value = parse_object_value
+      value = parse_object_value(colon_found)
 
       [key, value]
     end
@@ -257,14 +281,14 @@ module JsonMend
     end
 
     # Parses the value part of a key-value pair.
-    def parse_object_value
+    def parse_object_value(colon_found = true)
       @context.push(:object_value)
       skip_whitespaces
 
       # Handle cases where the value is missing (e.g., "key": } or "key": ,)
-      if @scanner.check(/[,\}]/)
+      if @scanner.eos? || @scanner.check(/[,\}]/)
         @context.pop
-        return # Represent missing values as null.
+        return colon_found ? '' : true
       end
 
       # Delegate to the main JSON value parser.
@@ -334,7 +358,9 @@ module JsonMend
       end
 
       # Handle a potentially missing closing bracket, a common LLM error.
-      @scanner.scan(']')
+      unless @scanner.scan(']')
+        @scanner.scan('}') # Consume } if it was the closer
+      end
       @context.pop
 
       arr
@@ -694,27 +720,20 @@ module JsonMend
                   char = peek_char
                 end
               elsif current_context?(:array)
-                # So here we can have a few valid cases:
-                # ["bla bla bla "puppy" bla bla bla "kitty" bla bla"]
-                # ["value1" value2", "value3"]
-                # The basic idea is that if we find an even number of delimiters after this delimiter
-                # we ignore this delimiter as it should be fine
-                even_delimiters = next_c == rstring_delimiter
-                while next_c == rstring_delimiter
-                  i = skip_to_character([rstring_delimiter, ']'], start_idx: i + 1)
-                  next_c = peek_char(i)
-                  if next_c != rstring_delimiter
-                    even_delimiters = false
-                    break
-                  end
+                # In array context, be lenient about quotes unless strictly followed by a separator.
+                i = skip_whitespaces_at(start_idx: i + 1)
+                next_c = peek_char(i)
+
+                # If the quote is NOT followed by a comma or bracket, treat it as part of the string.
+                unless [',', ']'].include?(next_c)
+                  unmatched_delimiter = !unmatched_delimiter
+                  string_acc << char.to_s
+                  @scanner.getch # Consume the character
+                  char = peek_char
+                  next
                 end
 
-                break unless even_delimiters
-
-                unmatched_delimiter = !unmatched_delimiter
-                string_acc << char.to_s
-                @scanner.getch # Consume the character
-                char = peek_char
+                break
               elsif current_context?(:object_key)
                 string_acc << char.to_s
                 @scanner.getch # Consume the character
@@ -736,6 +755,9 @@ module JsonMend
       if char == rstring_delimiter
         @scanner.getch
       else
+        if missing_quotes && current_context?(:object_key) && string_acc.end_with?(',')
+          string_acc.chop!
+        end
         string_acc.rstrip!
       end
 
@@ -758,7 +780,7 @@ module JsonMend
 
       # Handle cases where the number ends with an invalid character.
       if !scanned_str.empty? && ['-', 'e', 'E', ','].include?(scanned_str[-1])
-        @scanner.pos -= scanned_str[-1].bytesize
+        # Do not rewind scanner, simply discard the invalid trailing char (garbage)
         scanned_str.chop!
       # Handle cases where what looked like a number is actually a string.
       # e.g., "123-abc"
@@ -772,7 +794,7 @@ module JsonMend
       # Use rescue to handle conversion errors gracefully, returning the original string.
       begin
         if scanned_str.include?(',')
-          scanned_str.to_s
+          Float(scanned_str.tr(',', '.'))
         elsif scanned_str.match?(/[\.eE]/)
           Float(scanned_str)
         else
