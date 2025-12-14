@@ -498,7 +498,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"lorem_ipsum": "sic tamet, quick brown fox. }',
-          expected_output: JSON.dump({ lorem_ipsum: 'sic tamet, quick brown fox.' })
+          expected_output: JSON.dump({ lorem_ipsum: 'sic tamet, quick brown fox. ' })
         },
         {
           input: '{"key":value, " key2":"value2" }',

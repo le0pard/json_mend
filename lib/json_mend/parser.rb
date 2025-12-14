@@ -275,8 +275,8 @@ module JsonMend
 
         if strictly_empty?(value)
           @scanner.getch
-        elsif value == '...' && @scanner.string[@scanner.charpos - 1] == '.'
-          # just skip
+        elsif value == '...' && @scanner.string.getbyte(@scanner.pos - 1) == 46
+          # just skip if the previous byte was a dot (46)
         else
           arr << value
         end
@@ -374,7 +374,7 @@ module JsonMend
         end
       end
 
-      string_acc = +''
+      string_parts = []
 
       # Here things get a bit hairy because a string missing the final quote can also be a key or a value in an object
       # In that case we need to use the ":|,|}" characters as terminators of the string
@@ -392,8 +392,8 @@ module JsonMend
           break if current_context?(:array) && [']', ','].include?(char)
         end
 
-        if current_context?(:object_value) && [',',
-                                               '}'].include?(char) && (string_acc.empty? || string_acc[-1] != rstring_delimiter)
+        if current_context?(:object_value) && [',', '}'].include?(char) &&
+           (string_parts.empty? || string_parts.last != rstring_delimiter)
           rstring_delimiter_missing = true
           # check if this is a case in which the closing comma is NOT missing instead
           skip_whitespaces
@@ -455,8 +455,8 @@ module JsonMend
               # Let's ignore
               rstring_delimiter_missing = false
             elsif peek_char(j)
-              # Check for an unmatched opening brace in string_acc
-              string_acc.reverse.chars.each do |c|
+              # Check for an unmatched opening brace in string_parts
+              string_parts.reverse_each do |c|
                 next unless c == '{'
 
                 # Ok then this is part of the string
@@ -470,7 +470,7 @@ module JsonMend
           break if rstring_delimiter_missing
         end
 
-        if char == ']' && context_contain?(:array) && string_acc[-1] != rstring_delimiter
+        if char == ']' && context_contain?(:array) && string_parts.last != rstring_delimiter
           i = skip_to_character(rstring_delimiter)
           # No delimiter found
           break unless peek_char(i)
@@ -484,39 +484,56 @@ module JsonMend
           break unless next_c
         end
 
-        string_acc << char
+        string_parts << char
         @scanner.getch # Consume the character
         char = peek_char
 
-        if !@scanner.eos? && string_acc[-1] == '\\'
+        if !@scanner.eos? && string_parts.last == '\\'
           # This is a special case, if people use real strings this might happen
           if [rstring_delimiter, 't', 'n', 'r', 'b', '\\'].include?(char)
-            # OPTIMIZE: Modify string in place instead of creating new string objects
-            string_acc.chop! << ESCAPE_MAPPING.fetch(char, char)
+            string_parts.pop
+            string_parts << ESCAPE_MAPPING.fetch(char, char)
 
             @scanner.getch # Consume the character
             char = peek_char
-            while !@scanner.eos? && string_acc[-1] == '\\' && [rstring_delimiter, '\\'].include?(char)
+            while !@scanner.eos? && string_parts.last == '\\' && [rstring_delimiter, '\\'].include?(char)
               # this is a bit of a special case, if I don't do this it will close the loop or create a train of \\
               # I don't love it though
-              string_acc.chop! << char
+              string_parts.pop
+              string_parts << char
               @scanner.getch # Consume the character
               char = peek_char
             end
             next
           elsif %w[u x].include?(char)
             num_chars = (char == 'u' ? 4 : 2)
-            next_chars = @scanner.peek(num_chars + 1)[1..]
+            saved_pos = @scanner.pos
+            hex_parts = []
 
-            if next_chars.length == num_chars && next_chars.chars.all? { |c| '0123456789abcdefABCDEF'.include?(c) }
-              # OPTIMIZE: Append char in place
-              string_acc.chop! << next_chars.to_i(16).chr('UTF-8')
+            # Use getch in loop to correctly extract chars (handling multibyte)
+            num_chars.times do
+              c = @scanner.getch
+              break unless c
+
+              hex_parts << c
+            end
+
+            @scanner.pos = saved_pos
+
+            if hex_parts.length == num_chars && hex_parts.all? { |c| '0123456789abcdefABCDEF'.include?(c) }
+              string_parts.pop
+              string_parts << hex_parts.join.to_i(16).chr('UTF-8')
+
+              # Advance scanner past the hex digits.
+              # Since hex digits are ASCII, pos += num_chars + 1 (for u/x) works.
               @scanner.pos += num_chars + 1
+
               char = peek_char
               next
             end
           elsif STRING_DELIMITERS.include?(char) && char != rstring_delimiter
-            string_acc.chop! << char
+            string_parts.pop
+            string_parts << char
             @scanner.getch # Consume the character
             char = peek_char
             next
@@ -544,7 +561,7 @@ module JsonMend
 
         end
 
-        if char == rstring_delimiter && string_acc[-1] != '\\'
+        if char == rstring_delimiter && string_parts.last != '\\'
           if doubled_quotes && peek_char(1) == rstring_delimiter
             @scanner.getch
           elsif missing_quotes && current_context?(:object_value)
@@ -568,7 +585,7 @@ module JsonMend
             end
           elsif unmatched_delimiter
             unmatched_delimiter = false
-            string_acc << char.to_s
+            string_parts << char.to_s
             @scanner.getch # Consume the character
             char = peek_char
           else
@@ -606,7 +623,7 @@ module JsonMend
               i = skip_whitespaces_at(start_idx: i)
               next_c = peek_char(i)
               if ['}', ','].include?(next_c)
-                string_acc << char.to_s
+                string_parts << char.to_s
                 @scanner.getch # Consume the character
                 char = peek_char
                 next
@@ -627,7 +644,7 @@ module JsonMend
                   i = skip_whitespaces_at(start_idx: i)
                   next_c = peek_char(i)
                   if next_c == ':'
-                    string_acc << char.to_s
+                    string_parts << char.to_s
                     @scanner.getch # Consume the character
                     char = peek_char
                     next
@@ -653,7 +670,7 @@ module JsonMend
                 # Only if we fail to find a ':' then we know this is misplaced quote
                 if next_c != ':'
                   unmatched_delimiter = !unmatched_delimiter
-                  string_acc << char.to_s
+                  string_parts << char.to_s
                   @scanner.getch # Consume the character
                   char = peek_char
                 end
@@ -693,7 +710,7 @@ module JsonMend
 
                 unless is_whitespace || is_next_closer
                   unmatched_delimiter = !unmatched_delimiter
-                  string_acc << char.to_s
+                  string_parts << char.to_s
                   @scanner.getch # Consume the character
                   char = peek_char
                   next
@@ -701,7 +718,7 @@ module JsonMend
 
                 break
               elsif current_context?(:object_key)
-                string_acc << char.to_s
+                string_parts << char.to_s
                 @scanner.getch # Consume the character
                 char = peek_char
               end
@@ -720,14 +737,14 @@ module JsonMend
       # we need to update the index only if we had a closing quote
       if char == rstring_delimiter
         @scanner.getch
-      else
-        string_acc.chop! if missing_quotes && current_context?(:object_key) && string_acc.end_with?(',')
-        string_acc.rstrip!
+      elsif missing_quotes && current_context?(:object_key) && string_parts.last == ','
+        string_parts.pop
       end
 
-      string_acc.rstrip! if missing_quotes || (string_acc && string_acc[-1] == "\n")
+      final_str = string_parts.join
+      final_str = final_str.rstrip if missing_quotes || final_str.end_with?("\n")
 
-      string_acc
+      final_str
     end
 
     # Parses a JSON number, which can be an integer or a floating-point value.
@@ -744,7 +761,7 @@ module JsonMend
       # Handle cases where the number ends with an invalid character.
       if !scanned_str.empty? && ['-', 'e', 'E', ','].include?(scanned_str[-1])
         # Do not rewind scanner, simply discard the invalid trailing char (garbage)
-        scanned_str.chop!
+        scanned_str = scanned_str[0...-1]
       # Handle cases where what looked like a number is actually a string.
       # e.g., "123-abc"
       elsif peek_char&.match?(/\p{L}/)
@@ -834,63 +851,72 @@ module JsonMend
     # It quickly iterates to find a character, handling escaped characters, and
     # returns the index (offset) from the scanner
     def skip_to_character(characters, start_idx: 0)
-      # Get the rest of the string from the scanner's current position for lookahead.
-      search_string = @scanner.rest
-      character_list = Array(characters)
+      pattern = characters.is_a?(Array) ? Regexp.union(characters) : characters
 
-      # byte_pos will track our position in bytes.
-      byte_pos = 0
+      saved_pos = @scanner.pos
+      # Skip start_idx
+      start_idx.times { @scanner.getch }
 
-      # We iterate through each character, getting the character itself and its character index.
-      # The .chars method is UTF-8 aware.
-      search_string.chars.each_with_index do |char, char_index|
-        # Only start checking for matches once we are past the start_idx (in bytes).
-        if byte_pos >= start_idx && character_list.include?(char)
+      # Track accumulated length in chars
+      acc_len = start_idx
+      found_idx = nil
 
-          # Check if the character is escaped.
-          is_escaped = false
-          if char_index.positive?
+      while (matched_text = @scanner.scan_until(pattern))
+        chunk_len = matched_text.length
+        delimiter_len = @scanner.matched.length
 
-            # Look backwards from the character before the current one.
-            temp_index = char_index - 1
-            slash_count = 0
-
-            # Count how many consecutive backslashes precede the character.
-            while temp_index >= 0 && search_string[temp_index] == '\\'
-              slash_count += 1
-              temp_index -= 1
-            end
-
-            # An odd number of backslashes means the character is escaped.
-            is_escaped = slash_count.odd?
-          end
-
-          # If it's not escaped, we've found our match. Return the byte position.
-          return byte_pos unless is_escaped
+        # Check escapes
+        # matched_text ends with delimiter.
+        # Check chars before the last one.
+        content_before = matched_text[0...-delimiter_len]
+        bs_count = 0
+        idx = content_before.length - 1
+        while idx >= 0 && content_before[idx] == '\\'
+          bs_count += 1
+          idx -= 1
         end
 
-        # Advance the byte position by the byte size of the current character.
-        byte_pos += char.bytesize
+        if bs_count.even?
+          # Found it
+          found_idx = acc_len + (chunk_len - delimiter_len)
+          break
+        else
+          # Escaped, continue
+          acc_len += chunk_len
+        end
       end
 
-      # If the loop completes, the character was not found. Return the total byte length.
-      search_string.bytesize
+      if found_idx.nil?
+        # Not found. Return remaining distance.
+        # We scanned to EOS (if loop finished) or stopped.
+        found_idx = acc_len + @scanner.rest.length
+      end
+
+      @scanner.pos = saved_pos
+      found_idx
     end
 
     # This function uses the StringScanner to skip whitespace from the current position.
     # It is more efficient and idiomatic than manual index management
     def skip_whitespaces_at(start_idx: 0)
-      idx = start_idx
-      # This function quickly iterates on whitespaces, syntactic sugar to make the code more concise
-      char = peek_char(idx)
-      return idx if char.nil?
+      saved_pos = @scanner.pos
+      start_idx.times { @scanner.getch }
 
-      while !@scanner.eos? && char.match?(/\s/)
-        idx += 1
-        char = peek_char(idx)
-      end
+      # Check forward for non-whitespace
+      matched = @scanner.check_until(/\S/)
 
-      idx
+      res = if matched
+              # matched contains spaces then one non-space.
+              # The index of that non-space (relative to current pos after start_idx)
+              # is matched.length - 1
+              (matched.length - 1) + start_idx
+            else
+              # No non-space found.
+              @scanner.rest.length + start_idx
+            end
+
+      @scanner.pos = saved_pos
+      res
     end
 
     # Helper to check if two objects are of the same container type (Array or Hash).
@@ -900,7 +926,12 @@ module JsonMend
 
     def strictly_empty?(value)
       # Check if the value is a container AND if it's empty.
-      [String, Array, Hash, Set].any? { |klass| value.is_a?(klass) } && value.empty?
+      case value
+      when String, Array, Hash, Set
+        value.empty?
+      else
+        false
+      end
     end
 
     # Skips whitespaces
@@ -910,8 +941,14 @@ module JsonMend
 
     # Peeks the next character without advancing the scanner
     def peek_char(offset = 0)
-      rest_of_string = @scanner.rest
-      rest_of_string[offset]
+      saved_pos = @scanner.pos
+      c = nil
+      (offset + 1).times do
+        c = @scanner.getch
+        break if c.nil?
+      end
+      @scanner.pos = saved_pos
+      c
     end
 
     def current_context?(value)
