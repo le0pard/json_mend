@@ -671,13 +671,17 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"bad_one":["Lorem Ipsum", "consectetur" comment" ], "good_one":[ "elit", "sed", "tempor"]}',
-          expected_output: JSON.dump({ 'bad_one' => ['Lorem Ipsum', 'consectetur', 'comment'],
-                                       'good_one' => %w[elit sed tempor] })
+          expected_output: JSON.dump({
+                                       'bad_one' => ['Lorem Ipsum', 'consectetur', 'comment'],
+                                       'good_one' => %w[elit sed tempor]
+                                     })
         },
         {
           input: '{"bad_one": ["Lorem Ipsum","consectetur" comment],"good_one": ["elit","sed","tempor"]}',
-          expected_output: JSON.dump({ 'bad_one' => ['Lorem Ipsum', 'consectetur', 'comment'],
-                                       'good_one' => %w[elit sed tempor] })
+          expected_output: JSON.dump({
+                                       'bad_one' => ['Lorem Ipsum', 'consectetur', 'comment'],
+                                       'good_one' => %w[elit sed tempor]
+                                     })
         }
       ].each do |test_case|
         it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do
