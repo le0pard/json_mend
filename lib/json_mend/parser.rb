@@ -806,14 +806,15 @@ module JsonMend
       # Sometimes numbers are followed by a quote, which is garbage
       @scanner.getch if peek_char == '"'
 
-      # Fix for Ruby < 3.4: "1." is not a valid float, so we append "0" to make it "1.0"
-      str_to_parse = scanned_str
-      "#{str_to_parse}0" if str_to_parse.end_with?('.')
-
       # Attempt to convert the string to the appropriate number type.
       # Use rescue to handle conversion errors gracefully, returning the original string.
       begin
-        if scanned_str.include?(',')
+        # Fix for Ruby < 3.4: "1." is not a valid float.
+        # If it ends with '.', we strip the dot and force Float conversion
+        # to ensure "1." becomes 1.0 (Float) instead of 1 (Integer).
+        if scanned_str.end_with?('.')
+          Float(scanned_str[0...-1])
+        elsif scanned_str.include?(',')
           Float(scanned_str.tr(',', '.'))
         elsif scanned_str.match?(/[.eE]/)
           Float(scanned_str)
