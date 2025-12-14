@@ -16,6 +16,7 @@ module JsonMend
       'r' => "\r",
       'b' => "\b"
     }.freeze
+    JSON_STOP_TOKEN = :json_mend_stop_token
 
     # Pre-compile regexes for performance
     NUMBER_REGEX = /[#{Regexp.escape(NUMBER_CHARS.to_a.join)}]+/
@@ -30,14 +31,18 @@ module JsonMend
     def parse
       json = parse_json
 
+      # If the first parse returns JSON_STOP_TOKEN, it means we found nothing (empty string or garbage).
+      # Return nil (or empty string representation logic elsewhere handles it).
+      return nil if json == JSON_STOP_TOKEN
+
       unless @scanner.eos?
         json = [json]
         until @scanner.eos?
           new_json = parse_json
           if new_json == ''
             @scanner.getch # continue
-          elsif new_json.nil?
-            # Found nothing but EOS
+          elsif new_json == JSON_STOP_TOKEN
+            # Found nothing but EOS or garbage terminator
             break
           else
             # Ignore strings that look like closing braces garbage (e.g. "}", " ] ")
@@ -67,7 +72,8 @@ module JsonMend
           @scanner.getch # consume '['
           return parse_array
         when *COMMENT_DELIMETERS
-          return parse_comment
+          # Avoid recursion: consume comment and continue loop
+          parse_comment
         else
           if string_start?(char)
             if @context.empty? && !STRING_DELIMITERS.include?(char)
@@ -86,10 +92,18 @@ module JsonMend
 
             @scanner.getch
           else
+            # Stop if we hit a terminator for the current context to avoid consuming it as garbage
+            if (current_context?(:array) && char == ']') ||
+               (current_context?(:object_value) && char == '}') ||
+               (current_context?(:object_key) && char == '}')
+              return JSON_STOP_TOKEN
+            end
+
             @scanner.getch # moving by string, ignore this symbol
           end
         end
       end
+      JSON_STOP_TOKEN
     end
 
     # Parses a JSON object.
@@ -225,7 +239,10 @@ module JsonMend
       # Delegate to the main JSON value parser.
       value = parse_json
       @context.pop
-      value
+
+      # If parse_json returned JSON_STOP_TOKEN (nothing found due to garbage->terminator),
+      # treat it as nil (null) for object values to be safe.
+      value == JSON_STOP_TOKEN ? nil : value
     end
 
     # Encapsulates the logic for merging an array that appears without a key.
@@ -259,6 +276,14 @@ module JsonMend
       # Stop when you find the closing bracket or an invalid character like '}'
       while !@scanner.eos? && ![']', '}'].include?(char)
         skip_whitespaces
+        char = peek_char
+
+        # Check for comments explicitly inside array to avoid recursion or garbage consumption issues
+        if ['#', '/'].include?(char)
+          parse_comment
+          char = peek_char
+          next
+        end
 
         value = ''
         if STRING_DELIMITERS.include?(char)
@@ -273,8 +298,12 @@ module JsonMend
           value = parse_json
         end
 
-        if strictly_empty?(value)
-          @scanner.getch
+        # Handle JSON_STOP_TOKEN from parse_json (EOS or consumed terminator)
+        if value == JSON_STOP_TOKEN
+          # Do nothing, just skipped garbage
+        elsif strictly_empty?(value)
+          # Only consume if we didn't just hit a terminator that parse_json successfully respected
+          @scanner.getch unless value.nil? && ['}', ']'].include?(peek_char)
         elsif value == '...' && @scanner.string.getbyte(@scanner.pos - 1) == 46
           # just skip if the previous byte was a dot (46)
         else
@@ -301,13 +330,17 @@ module JsonMend
     # many common errors found in LLM-generated JSON, such as missing quotes,
     # incorrect escape sequences, and ambiguous string terminators
     def parse_string
+      char = peek_char
+
+      # Consume comments that appear before the string starts
+      while ['#', '/'].include?(char)
+        parse_comment
+        char = peek_char
+      end
+
       doubled_quotes = false
       missing_quotes = false
       lstring_delimiter = rstring_delimiter = '"'
-
-      char = peek_char
-
-      return parse_comment if ['#', '/'].include?(char)
 
       # A valid string can only start with a valid quote or, in our case, with a literal
       while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char.match?(/[\p{L}0-9]/)
@@ -808,8 +841,7 @@ module JsonMend
     # - # line comment
     # - // line comment
     # - /* block comment */
-    # After skipping the comment, it either continues parsing if at the top level
-    # or returns an empty string to be ignored by the caller.
+    # After skipping the comment, it returns, allowing the caller to loop.
     def parse_comment
       # Check for a block comment `/* ... */`
       if @scanner.scan(%r{/\*})
@@ -839,12 +871,6 @@ module JsonMend
       end
 
       skip_whitespaces
-
-      # If we've parsed a top-level comment, continue parsing the next JSON element.
-      # Otherwise, return an empty string to signify the comment was ignored.
-      return parse_json if @context.empty?
-
-      ''
     end
 
     # This function is a non-destructive lookahead.
@@ -941,6 +967,8 @@ module JsonMend
 
     # Peeks the next character without advancing the scanner
     def peek_char(offset = 0)
+      return @scanner.check(/./m) if offset.zero?
+
       saved_pos = @scanner.pos
       c = nil
       (offset + 1).times do
