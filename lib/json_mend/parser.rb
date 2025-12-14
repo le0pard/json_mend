@@ -186,7 +186,7 @@ module JsonMend
       colon_found = @scanner.skip(/:/) # Leniently skip the colon if it exists.
 
       # --- 4. Parse the Value ---
-      value = parse_object_value(colon_found || is_bracketed)
+      value = parse_object_value(colon_found: colon_found || is_bracketed)
 
       if value == :inferred_true
         return [nil, nil, false] if %w[true false null].include?(key.downcase)
@@ -226,7 +226,7 @@ module JsonMend
     end
 
     # Parses the value part of a key-value pair.
-    def parse_object_value(colon_found = true)
+    def parse_object_value(colon_found: true)
       @context.push(:object_value)
       skip_whitespaces
 

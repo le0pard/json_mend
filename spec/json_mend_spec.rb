@@ -493,8 +493,11 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"lorem": sic tamet. "ipsum": sic tamet, quick brown fox. "sic": ipsum}',
-          expected_output: JSON.dump({ 'lorem' => 'sic tamet.', 'ipsum' => 'sic tamet, quick brown fox.',
-                                       'sic' => 'ipsum' })
+          expected_output: JSON.dump({
+                                       lorem: 'sic tamet.',
+                                       ipsum: 'sic tamet, quick brown fox.',
+                                       sic: 'ipsum'
+                                     })
         },
         {
           input: '{"lorem_ipsum": "sic tamet, quick brown fox. }',
@@ -538,8 +541,10 @@ RSpec.describe JsonMend do
         },
         {
           input: '[{"lorem": {"ipsum": "sic"}, """" "lorem": {"ipsum": "sic"}]',
-          expected_output: JSON.dump([{ 'lorem' => { 'ipsum' => 'sic' }, '' => '' },
-                                      { 'lorem' => { 'ipsum' => 'sic' } }])
+          expected_output: JSON.dump([
+                                       { 'lorem' => { 'ipsum' => 'sic' }, '' => '' },
+                                       { 'lorem' => { 'ipsum' => 'sic' } }
+                                     ])
         },
         {
           input: '{ "key": ["arrayvalue"], ["arrayvalue1"], ["arrayvalue2"], "key3": "value3" }',
@@ -551,7 +556,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"key": "{\\\\"key\\\\\\":[\\"value\\\\\\"],\\"key2\\":"value2"}"}',
-          expected_output: JSON.dump({ 'key' => '{"key":["value"],"key2":"value2"}' })
+          expected_output: JSON.dump({ key: '{"key":["value"],"key2":"value2"}' })
         },
         {
           input: '{"key": , "key2": "value2"}',
