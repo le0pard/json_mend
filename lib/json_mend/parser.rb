@@ -10,6 +10,12 @@ module JsonMend
     COMMENT_DELIMETERS = ['#', '/'].freeze
     NUMBER_CHARS = Set.new('0123456789-.eE/,'.chars).freeze
     STRING_DELIMITERS = ['"', "'", '“', '”'].freeze
+    ESCAPE_MAPPING = {
+      't' => "\t",
+      'n' => "\n",
+      'r' => "\r",
+      'b' => "\b"
+    }.freeze
 
     # Pre-compile regexes for performance
     NUMBER_REGEX = /[#{Regexp.escape(NUMBER_CHARS.to_a.join)}]+/
@@ -486,8 +492,7 @@ module JsonMend
           # This is a special case, if people use real strings this might happen
           if [rstring_delimiter, 't', 'n', 'r', 'b', '\\'].include?(char)
             # OPTIMIZE: Modify string in place instead of creating new string objects
-            escape_seqs = { 't' => "\t", 'n' => "\n", 'r' => "\r", 'b' => "\b" }
-            string_acc.chop! << escape_seqs.fetch(char, char)
+            string_acc.chop! << ESCAPE_MAPPING.fetch(char, char)
 
             @scanner.getch # Consume the character
             char = peek_char
@@ -754,11 +759,7 @@ module JsonMend
       # Attempt to convert the string to the appropriate number type.
       # Use rescue to handle conversion errors gracefully, returning the original string.
       begin
-        if scanned_str.include?(')') # typo in original code? Assuming it meant comma?
-          # The original code had scanned_str.include?(',') but the regex logic suggests we support it
-          # However, the previous code block did `scanned_str.tr(',', '.')`
-          Float(scanned_str.tr(',', '.'))
-        elsif scanned_str.include?(',')
+        if scanned_str.include?(',')
           Float(scanned_str.tr(',', '.'))
         elsif scanned_str.match?(/[.eE]/)
           Float(scanned_str)
