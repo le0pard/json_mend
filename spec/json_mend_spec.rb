@@ -1,9 +1,10 @@
 # frozen_string_literal: true
+
 require 'timeout'
 
 # Helper to enforce timeout for these specific tests
-def with_timeout(seconds = 1)
-  Timeout.timeout(seconds) { yield }
+def with_timeout(seconds = 1, &)
+  Timeout.timeout(seconds, &)
 end
 
 RSpec.describe JsonMend do
@@ -781,7 +782,7 @@ RSpec.describe JsonMend do
           description: 'repeated commas'
         },
         {
-          input: '[' * 500 + ']' * 500,
+          input: ('[' * 500) + (']' * 500),
           description: 'deeply nested arrays'
         },
         {
@@ -789,19 +790,19 @@ RSpec.describe JsonMend do
           description: 'repeated dangling array merges'
         },
         {
-          input: '"' + ('\\\\' * 500) + '"',
+          input: "\"#{'\\\\' * 500}\"",
           description: 'massive backslash sequence'
         },
         {
-          input: '{"k": "' + ('\\u' * 100) + '"}',
+          input: "{\"k\": \"#{'\\u' * 100}\"}",
           description: 'repeated broken unicode escapes'
         },
         {
-          input: '/* ' + ('*' * 1000),
+          input: "/* #{'*' * 1000}",
           description: 'unclosed block comment with repeating chars'
         },
         {
-          input: '{"key": "start_of_string_and_no_end_' + ('a' * 1000),
+          input: "{\"key\": \"start_of_string_and_no_end_#{'a' * 1000}",
           description: 'long unclosed string at EOS'
         },
         {
@@ -809,16 +810,137 @@ RSpec.describe JsonMend do
           description: 'repeated doubled quotes'
         },
         {
-          input: '{' + ('"": 1, ' * 100) + '}',
+          input: "{#{'"": 1, ' * 100}}",
           description: 'repeated empty keys'
         }
       ].each do |test_case|
         it "does not hang on #{test_case[:description]}" do
-          expect {
+          expect do
             with_timeout(2) do
               described_class.repair(test_case[:input])
             end
-          }.not_to raise_error
+          end.not_to raise_error
+        end
+      end
+    end
+
+    context 'when parsing loose arrays' do
+      [
+        {
+          input: '[1 2 3]',
+          expected_output: JSON.dump([1, 2, 3]),
+          desc: 'space separated items'
+        },
+        {
+          input: "[\"a\" \"b\"\n\"c\"]",
+          expected_output: JSON.dump(%w[a b c]),
+          desc: 'mixed whitespace separated items'
+        },
+        {
+          input: '[1, garbage, 2]',
+          expected_output: JSON.dump([1, 'garbage', 2]),
+          desc: 'unquoted garbage text treated as strings'
+        }
+      ].each do |tc|
+        it "repairs #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end
+      end
+    end
+
+    context 'when parsing loose objects' do
+      [
+        {
+          input: '{"key" "value"}',
+          expected_output: JSON.dump({ 'key" "value' => true }),
+          desc: 'missing colon'
+        },
+        {
+          input: '{"key" "value", "key2" 123}',
+          expected_output: JSON.dump({ 'key" "value", "key2' => 123 }),
+          desc: 'missing colons in multiple pairs'
+        },
+        {
+          input: '{"flag"}',
+          expected_output: JSON.dump({ 'flag' => true }),
+          desc: 'implicit true for missing value without colon'
+        },
+        {
+          input: '{"flag", "flag2": false}',
+          expected_output: JSON.dump({ 'flag", "flag2' => false }),
+          desc: 'implicit true mixed with valid pairs'
+        },
+        {
+          input: '{123: "value", true: "value"}',
+          expected_output: JSON.dump({ '123' => 'value', 'true' => 'value' }),
+          desc: 'literals used as unquoted keys'
+        }
+      ].each do |tc|
+        it "repairs #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end
+      end
+    end
+
+    context 'when handling tricky escape sequences' do
+      [
+        {
+          input: '{"url": "http:\/\/example.com"}',
+          expected_output: JSON.dump({ 'url' => 'http://example.com' }),
+          desc: 'escaped forward slash (common in standard JSON)'
+        },
+        {
+          input: '{"feed": "form\fbreak"}',
+          expected_output: JSON.dump({ 'feed' => 'formfbreak' }),
+          desc: 'unknown escape \f becomes literal f (current parser behavior)'
+        },
+        {
+          input: '{"path": "C:\\Windows\\System32"}',
+          expected_output: JSON.dump({ 'path' => 'C:\\Windows\\System32' }),
+          desc: 'standard backslash escaping'
+        },
+        {
+          input: '{"unicode": "val\u0075e"}',
+          expected_output: JSON.dump({ 'unicode' => 'value' }),
+          desc: 'valid unicode escape'
+        },
+        {
+          input: '{"bad_uni": "val\u007e"}',
+          expected_output: JSON.dump({ 'bad_uni' => "val\u007e" }),
+          desc: 'incomplete/invalid unicode escape kept as literal'
+        },
+        {
+          input: '{"bad_hex": "val\xZZ"}',
+          expected_output: JSON.dump({ 'bad_hex' => 'valxZZ' }),
+          desc: 'invalid hex escape \x kept as literal x'
+        }
+      ].each do |tc|
+        it "repairs #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end
+      end
+    end
+
+    context 'when checking dangling array logic vs splitting' do
+      [
+        {
+          input: '{"a": [1] [2]}',
+          expected_output: JSON.dump({ 'a' => [1, 2] }),
+          desc: 'merges dangling array inside the object (missing comma/brace)'
+        },
+        {
+          input: '{"a": [1]} [2]',
+          expected_output: JSON.dump([{ 'a' => [1] }, [2]]),
+          desc: 'splits into list if brace is explicitly closed'
+        },
+        {
+          input: '{"a": 1} [2]',
+          expected_output: JSON.dump([{ 'a' => 1 }, [2]]),
+          desc: 'splits into list if previous value was not an array'
+        }
+      ].each do |tc|
+        it "repairs #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
         end
       end
     end
