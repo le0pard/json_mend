@@ -332,8 +332,6 @@ module JsonMend
     def parse_string
       char = prepare_string_parsing
 
-      doubled_quotes = false
-
       # A valid string can only start with a valid quote or, in our case, with a literal
       while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char.match?(/[\p{L}0-9]/)
         return '' if ['{', '}', '[', ']', ':', ','].include?(char)
@@ -352,39 +350,13 @@ module JsonMend
       @scanner.getch unless missing_quotes
 
       # There is sometimes a weird case of doubled quotes, we manage this also later in the while loop
-      if STRING_DELIMITERS.include?(peek_char) && peek_char == lstring_delimiter
-        next_value = peek_char(1)
+      return_result, *rest = handle_doubled_quotes(
+        lstring_delimiter:,
+        rstring_delimiter:
+      )
+      return rest.first if return_result
 
-        if (
-          current_context?(:object_key) && next_value == ':'
-        ) || (
-          current_context?(:object_value) && [',', '}'].include?(next_value)
-        )
-          @scanner.getch
-          return ''
-        elsif next_value == lstring_delimiter
-          # There's something fishy about this, we found doubled quotes and then again quotes
-          return ''
-        end
-
-        i = skip_to_character(rstring_delimiter, start_idx: 1)
-        next_c = peek_char(i)
-
-        if next_c && peek_char(i + 1) == rstring_delimiter
-          doubled_quotes = true
-          @scanner.getch
-        else
-          # Ok this is not a doubled quote, check if this is an empty string or not
-          i = skip_whitespaces_at(start_idx: 1)
-          next_c = peek_char(i)
-          if [*STRING_DELIMITERS, '{', '['].include?(next_c)
-            @scanner.getch
-            return ''
-          elsif ![',', ']', '}'].include?(next_c)
-            @scanner.getch
-          end
-        end
-      end
+      doubled_quotes = rest.first
 
       string_parts = []
 
@@ -796,6 +768,50 @@ module JsonMend
       end
 
       [false, lstring_delimiter, rstring_delimiter, missing_quotes]
+    end
+
+    def handle_doubled_quotes(
+      lstring_delimiter:,
+      rstring_delimiter:
+    )
+      doubled_quotes = false
+
+      # There is sometimes a weird case of doubled quotes, we manage this also later in the while loop
+      if STRING_DELIMITERS.include?(peek_char) && peek_char == lstring_delimiter
+        next_value = peek_char(1)
+
+        if (
+          current_context?(:object_key) && next_value == ':'
+        ) || (
+          current_context?(:object_value) && [',', '}'].include?(next_value)
+        )
+          @scanner.getch
+          return [true, '']
+        elsif next_value == lstring_delimiter
+          # There's something fishy about this, we found doubled quotes and then again quotes
+          return [true, '']
+        end
+
+        i = skip_to_character(rstring_delimiter, start_idx: 1)
+        next_c = peek_char(i)
+
+        if next_c && peek_char(i + 1) == rstring_delimiter
+          doubled_quotes = true
+          @scanner.getch
+        else
+          # Ok this is not a doubled quote, check if this is an empty string or not
+          i = skip_whitespaces_at(start_idx: 1)
+          next_c = peek_char(i)
+          if [*STRING_DELIMITERS, '{', '['].include?(next_c)
+            @scanner.getch
+            return [true, '']
+          elsif ![',', ']', '}'].include?(next_c)
+            @scanner.getch
+          end
+        end
+      end
+
+      [false, doubled_quotes]
     end
 
     # Parses a JSON number, which can be an integer or a floating-point value.
