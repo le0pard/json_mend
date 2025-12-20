@@ -342,7 +342,7 @@ module JsonMend
 
       return '' if @scanner.eos?
 
-      return_result, *rest = determine_delimiters(char: char)
+      return_result, *rest = determine_delimiters(char:)
       return rest.first if return_result
 
       lstring_delimiter, rstring_delimiter, missing_quotes = rest
@@ -351,8 +351,8 @@ module JsonMend
 
       # There is sometimes a weird case of doubled quotes, we manage this also later in the while loop
       return_result, *rest = handle_doubled_quotes(
-        lstring_delimiter: lstring_delimiter,
-        rstring_delimiter: rstring_delimiter
+        lstring_delimiter:,
+        rstring_delimiter:
       )
       return rest.first if return_result
 
@@ -366,6 +366,129 @@ module JsonMend
       # * It finds a closing quote
       # * It iterated over the entire sequence
       # * If we are fixing missing quotes in an object, when it finds the special terminators
+      string_parts, char, = check_rstring_delimiter_missing(
+        string_parts:,
+        lstring_delimiter:,
+        rstring_delimiter:,
+        missing_quotes:,
+        doubled_quotes:
+      )
+
+      if !@scanner.eos? && missing_quotes && current_context?(:object_key) && char.match(/\s/)
+        skip_whitespaces
+        return '' unless [':', ','].include?(peek_char)
+      end
+
+      # A fallout of the previous special case in the while loop,
+      # we need to update the index only if we had a closing quote
+      if char == rstring_delimiter
+        @scanner.getch
+      elsif missing_quotes && current_context?(:object_key) && string_parts.last == ','
+        string_parts.pop
+      end
+
+      final_str = string_parts.join
+      final_str = final_str.rstrip if missing_quotes || final_str.end_with?("\n")
+
+      final_str
+    end
+
+    # string helper methods
+
+    def prepare_string_parsing
+      char = peek_char
+
+      # Consume comments that appear before the string starts
+      while ['#', '/'].include?(char)
+        parse_comment
+        char = peek_char
+      end
+
+      char
+    end
+
+    def determine_delimiters(char:)
+      missing_quotes = false
+      lstring_delimiter = rstring_delimiter = '"'
+
+      # --- Determine Delimiters and Handle Unquoted Literals ---
+      case char
+      when "'"
+        lstring_delimiter = rstring_delimiter = "'"
+      when '“'
+        lstring_delimiter = '“'
+        rstring_delimiter = '”'
+      when /[\p{L}0-9]/
+        # Could be a boolean/null, but not if it's an object key.
+        if %w[t f n].include?(char.downcase) && !current_context?(:object_key)
+          # parse_literal is non-destructive if it fails to match.
+          value = parse_literal
+          return [true, value] if value != ''
+        end
+        # While parsing a string, we found a literal instead of a quote
+        missing_quotes = true
+      end
+
+      [false, lstring_delimiter, rstring_delimiter, missing_quotes]
+    end
+
+    def handle_doubled_quotes(
+      lstring_delimiter:,
+      rstring_delimiter:
+    )
+      doubled_quotes = false
+
+      # There is sometimes a weird case of doubled quotes, we manage this also later in the while loop
+      if STRING_DELIMITERS.include?(peek_char) && peek_char == lstring_delimiter
+        next_value = peek_char(1)
+
+        if (
+          current_context?(:object_key) && next_value == ':'
+        ) || (
+          current_context?(:object_value) && [',', '}'].include?(next_value)
+        )
+          @scanner.getch
+          return [true, '']
+        elsif next_value == lstring_delimiter
+          # There's something fishy about this, we found doubled quotes and then again quotes
+          return [true, '']
+        end
+
+        i = skip_to_character(rstring_delimiter, start_idx: 1)
+        next_c = peek_char(i)
+
+        if next_c && peek_char(i + 1) == rstring_delimiter
+          doubled_quotes = true
+          @scanner.getch
+        else
+          # Ok this is not a doubled quote, check if this is an empty string or not
+          i = skip_whitespaces_at(start_idx: 1)
+          next_c = peek_char(i)
+          if [*STRING_DELIMITERS, '{', '['].include?(next_c)
+            @scanner.getch
+            return [true, '']
+          elsif ![',', ']', '}'].include?(next_c)
+            @scanner.getch
+          end
+        end
+      end
+
+      [false, doubled_quotes]
+    end
+
+    # Here things get a bit hairy because a string missing the final quote can also be a key or a value in an object
+    # In that case we need to use the ":|,|}" characters as terminators of the string
+    # So this will stop if:
+    # * It finds a closing quote
+    # * It iterated over the entire sequence
+    # * If we are fixing missing quotes in an object, when it finds the special terminators
+    def check_rstring_delimiter_missing(
+      string_parts:,
+      lstring_delimiter:,
+      rstring_delimiter:,
+      missing_quotes:,
+      doubled_quotes:
+    )
       char = peek_char
       unmatched_delimiter = false
       # --- Main Parsing Loop ---
@@ -712,106 +835,11 @@ module JsonMend
         end
       end
 
-      if !@scanner.eos? && missing_quotes && current_context?(:object_key) && char.match(/\s/)
-        skip_whitespaces
-        return '' unless [':', ','].include?(peek_char)
-      end
-
-      # A fallout of the previous special case in the while loop,
-      # we need to update the index only if we had a closing quote
-      if char == rstring_delimiter
-        @scanner.getch
-      elsif missing_quotes && current_context?(:object_key) && string_parts.last == ','
-        string_parts.pop
-      end
-
-      final_str = string_parts.join
-      final_str = final_str.rstrip if missing_quotes || final_str.end_with?("\n")
-
-      final_str
-    end
-
-    # string helper methods
-
-    def prepare_string_parsing
-      char = peek_char
-
-      # Consume comments that appear before the string starts
-      while ['#', '/'].include?(char)
-        parse_comment
-        char = peek_char
-      end
-
-      char
-    end
-
-    def determine_delimiters(char:)
-      missing_quotes = false
-      lstring_delimiter = rstring_delimiter = '"'
-
-      # --- Determine Delimiters and Handle Unquoted Literals ---
-      case char
-      when "'"
-        lstring_delimiter = rstring_delimiter = "'"
-      when '“'
-        lstring_delimiter = '“'
-        rstring_delimiter = '”'
-      when /[\p{L}0-9]/
-        # Could be a boolean/null, but not if it's an object key.
-        if %w[t f n].include?(char.downcase) && !current_context?(:object_key)
-          # parse_literal is non-destructive if it fails to match.
-          value = parse_literal
-          return [true, value] if value != ''
-        end
-        # While parsing a string, we found a literal instead of a quote
-        missing_quotes = true
-      end
-
-      [false, lstring_delimiter, rstring_delimiter, missing_quotes]
-    end
-
-    def handle_doubled_quotes(
-      lstring_delimiter:,
-      rstring_delimiter:
-    )
-      doubled_quotes = false
-
-      # There is sometimes a weird case of doubled quotes, we manage this also later in the while loop
-      if STRING_DELIMITERS.include?(peek_char) && peek_char == lstring_delimiter
-        next_value = peek_char(1)
-
-        if (
-          current_context?(:object_key) && next_value == ':'
-        ) || (
-          current_context?(:object_value) && [',', '}'].include?(next_value)
-        )
-          @scanner.getch
-          return [true, '']
-        elsif next_value == lstring_delimiter
-          # There's something fishy about this, we found doubled quotes and then again quotes
-          return [true, '']
-        end
-
-        i = skip_to_character(rstring_delimiter, start_idx: 1)
-        next_c = peek_char(i)
-
-        if next_c && peek_char(i + 1) == rstring_delimiter
-          doubled_quotes = true
-          @scanner.getch
-        else
-          # Ok this is not a doubled quote, check if this is an empty string or not
-          i = skip_whitespaces_at(start_idx: 1)
-          next_c = peek_char(i)
-          if [*STRING_DELIMITERS, '{', '['].include?(next_c)
-            @scanner.getch
-            return [true, '']
-          elsif ![',', ']', '}'].include?(next_c)
-            @scanner.getch
-          end
-        end
-      end
-
-      [false, doubled_quotes]
+      [
+        string_parts,
+        char,
+        unmatched_delimiter
+      ]
     end
 
     # Parses a JSON number, which can be an integer or a floating-point value.
