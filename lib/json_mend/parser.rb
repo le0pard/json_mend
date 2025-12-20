@@ -18,6 +18,15 @@ module JsonMend
     }.freeze
     JSON_STOP_TOKEN = :json_mend_stop_token
 
+    # Optimized constants for performance (CollectionLiteralInLoop)
+    TERMINATORS_ARRAY = [']', '}'].freeze
+    TERMINATORS_OBJECT_KEY = [':', '}'].freeze
+    TERMINATORS_OBJECT_VALUE = [',', '}'].freeze
+    TERMINATORS_ARRAY_ITEM = [',', ']'].freeze
+    TERMINATORS_STRING_GUESSED = ['{', '}', '[', ']', ':', ','].freeze
+    TERMINATORS_VALUE = [',', ']', '}'].freeze
+    STRING_OR_OBJECT_START = (STRING_DELIMITERS + ['{', '[']).freeze
+
     # Pre-compile regexes for performance
     NUMBER_REGEX = /[#{Regexp.escape(NUMBER_CHARS.to_a.join)}]+/
     NUMBER_NO_COMMA_REGEX = /[#{Regexp.escape(NUMBER_CHARS.dup.tap { |s| s.delete(',') }.to_a.join)}]+/
@@ -118,14 +127,14 @@ module JsonMend
 
         # Leniently consume any leading junk characters (like stray commas or colons)
         # that might appear before a key.
-        @scanner.skip(/[,\s:]+/)
+        @scanner.skip(/[,\s]+/)
 
         # --- Delegate to a helper to parse the next Key-Value pair ---
         key, value, colon_found = parse_object_pair(object)
         next if %i[merged_array stray_colon].include?(key)
 
         # If the helper returns nil for the key, it signals that we should
-        # stop parsing this object (e.g., a duplicate key was found,
+        # stop parsing this object (e.g. a duplicate key was found,
         # indicating the start of a new object).
         if key.nil?
           @scanner.scan('}')
@@ -230,7 +239,7 @@ module JsonMend
       @context.push(:object_value)
       skip_whitespaces
 
-      # Handle cases where the value is missing (e.g., "key": } or "key": ,)
+      # Handle cases where the value is missing (e.g. "key": } or "key": ,)
       if @scanner.eos? || @scanner.check(/[,}]/)
         @context.pop
         return colon_found ? '' : :inferred_true
@@ -274,7 +283,7 @@ module JsonMend
       @context.push(:array)
       char = peek_char
       # Stop when you find the closing bracket or an invalid character like '}'
-      while !@scanner.eos? && ![']', '}'].include?(char)
+      while !@scanner.eos? && !TERMINATORS_ARRAY.include?(char)
         skip_whitespaces
         char = peek_char
 
@@ -334,7 +343,7 @@ module JsonMend
 
       # A valid string can only start with a valid quote or, in our case, with a literal
       while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char.match?(/[\p{L}0-9]/)
-        return '' if ['{', '}', '[', ']', ':', ','].include?(char)
+        return '' if TERMINATORS_STRING_GUESSED.include?(char)
 
         @scanner.getch
         char = peek_char
@@ -439,7 +448,7 @@ module JsonMend
         if (
           current_context?(:object_key) && next_value == ':'
         ) || (
-          current_context?(:object_value) && [',', '}'].include?(next_value)
+          current_context?(:object_value) && TERMINATORS_OBJECT_VALUE.include?(next_value)
         )
           @scanner.getch
           return [true, '']
@@ -458,10 +467,10 @@ module JsonMend
           # Ok this is not a doubled quote, check if this is an empty string or not
           i = skip_whitespaces_at(start_idx: 1)
           next_c = peek_char(i)
-          if [*STRING_DELIMITERS, '{', '['].include?(next_c)
+          if STRING_OR_OBJECT_START.include?(next_c)
             @scanner.getch
             return [true, '']
-          elsif ![',', ']', '}'].include?(next_c)
+          elsif !TERMINATORS_VALUE.include?(next_c)
             @scanner.getch
           end
         end
@@ -492,7 +501,7 @@ module JsonMend
           missing_quotes:
         )
 
-        if current_context?(:object_value) && [',', '}'].include?(char) &&
+        if current_context?(:object_value) && TERMINATORS_OBJECT_VALUE.include?(char) &&
            (string_parts.empty? || string_parts.last != rstring_delimiter)
 
           is_break = check_rstring_delimiter_missing(
@@ -542,169 +551,25 @@ module JsonMend
         end
 
         if char == rstring_delimiter && string_parts.last != '\\'
-          if doubled_quotes && peek_char(1) == rstring_delimiter
-            @scanner.getch
-          elsif missing_quotes && current_context?(:object_value)
-            i = 1
-            next_c = peek_char(i)
-            while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
-              i += 1
-              next_c = peek_char(i)
-            end
-            if next_c
-              # We found a quote, now let's make sure there's a ":" following
-              i += 1
-              # found a delimiter, now we need to check that is followed strictly by a comma or brace
-              i = skip_whitespaces_at(start_idx: i)
-              next_c = peek_char(i)
-              if next_c && next_c == ':'
-                @scanner.pos -= 1
-                char = peek_char
-                break
-              end
-            end
+          if check_doubled_quotes(doubled_quotes, rstring_delimiter)
+            # Consumed in helper
+          elsif check_missing_quotes_in_object_value(missing_quotes, lstring_delimiter, rstring_delimiter)
+            char = peek_char
+            break
           elsif unmatched_delimiter
             unmatched_delimiter = false
             string_parts << char.to_s
             @scanner.getch # Consume the character
             char = peek_char
           else
-            # Check if eventually there is a rstring delimiter, otherwise we bail
-            i = 1
-            next_c = peek_char(i)
-            check_comma_in_object_value = true
-            while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
-              # This is a bit of a weird workaround, essentially in object_value context we don't always break on commas
-              # This is because the routine after will make sure to correct any bad guess and this solves a corner case
-              check_comma_in_object_value = false if check_comma_in_object_value && next_c.match?(/\p{L}/)
-              # If we are in an object context, let's check for the right delimiters
-              if (context_contain?(:object_key) && [':', '}'].include?(next_c)) ||
-                 (context_contain?(:object_value) && next_c == '}') ||
-                 (context_contain?(:array) && [']', ','].include?(next_c)) ||
-                 (
-                   check_comma_in_object_value &&
-                   current_context?(:object_value) &&
-                   next_c == ','
-                 )
-                break
-              end
-
-              i += 1
-              next_c = peek_char(i)
-            end
-
-            # If we stopped for a comma in object_value context, let's check if find a "} at the end of the string
-            if next_c == ',' && current_context?(:object_value)
-              i += 1
-              i = skip_to_character(rstring_delimiter, start_idx: i)
-              next_c = peek_char(i)
-              # Ok now I found a delimiter, let's skip whitespaces and see if next we find a } or a ,
-              i += 1
-              i = skip_whitespaces_at(start_idx: i)
-              next_c = peek_char(i)
-              if ['}', ','].include?(next_c)
-                string_parts << char.to_s
-                @scanner.getch # Consume the character
-                char = peek_char
-                next
-              end
-            elsif next_c == rstring_delimiter && peek_char(i - 1) != '\\'
-              # Check if self.index:self.index+i is only whitespaces, break if that's the case
-              break if (1..i).all? { |j| peek_char(j).to_s.match(/\s/) }
-
-              if current_context?(:object_value)
-                i = skip_whitespaces_at(start_idx: i + 1)
-                if peek_char(i) == ','
-                  # So we found a comma, this could be a case of a single quote like "va"lue",
-                  # Search if it's followed by another key, starting with the first delimeter
-                  i = skip_to_character(lstring_delimiter, start_idx: i + 1)
-                  i += 1
-                  i = skip_to_character(rstring_delimiter, start_idx: i + 1)
-                  i += 1
-                  i = skip_whitespaces_at(start_idx: i)
-                  next_c = peek_char(i)
-                  if next_c == ':'
-                    string_parts << char.to_s
-                    @scanner.getch # Consume the character
-                    char = peek_char
-                    next
-                  end
-                end
-                # We found a delimiter and we need to check if this is a key
-                # so find a rstring_delimiter and a colon after
-                i = skip_to_character(rstring_delimiter, start_idx: i + 1)
-                i += 1
-                next_c = peek_char(i)
-                while next_c && next_c != ':'
-                  if [',', ']', '}'].include?(next_c) || (
-                    next_c == rstring_delimiter &&
-                    peek_char(i - 1) != '\\'
-                  )
-                    break
-                  end
-
-                  i += 1
-                  next_c = peek_char(i)
-                end
-
-                # Only if we fail to find a ':' then we know this is misplaced quote
-                if next_c != ':'
-                  unmatched_delimiter = !unmatched_delimiter
-                  string_parts << char.to_s
-                  @scanner.getch # Consume the character
-                  char = peek_char
-                end
-              elsif current_context?(:array)
-                # Heuristic: Check if this quote is a closer or internal.
-                # 1. Find the NEXT delimiter (quote) index `j`.
-                j = 1
-                found_next = false
-                while (c = peek_char(j))
-                  if c == rstring_delimiter
-                    # Check if escaped (count preceding backslashes)
-                    bk = 1
-                    slashes = 0
-                    while j - bk >= 0 && peek_char(j - bk) == '\\'
-                      slashes += 1
-                      bk += 1
-                    end
-                    if slashes.even?
-                      found_next = true
-                      break
-                    end
-                  end
-                  j += 1
-                end
-
-                # 2. Check conditions to STOP (treat as closing quote):
-                #    a) Strictly whitespace between quotes: ["a" "b"]
-                is_whitespace = (1...j).all? { |k| peek_char(k).match?(/\s/) }
-
-                #    b) Next quote is followed by a separator: ["val1" val2",]
-                is_next_closer = false
-                if found_next
-                  k = j + 1
-                  k += 1 while peek_char(k)&.match?(/\s/) # skip whitespaces
-                  is_next_closer = [',', ']', '}'].include?(peek_char(k))
-                end
-
-                unless is_whitespace || is_next_closer
-                  unmatched_delimiter = !unmatched_delimiter
-                  string_parts << char.to_s
-                  @scanner.getch # Consume the character
-                  char = peek_char
-                  next
-                end
-
-                break
-              elsif current_context?(:object_key)
-                string_parts << char.to_s
-                @scanner.getch # Consume the character
-                char = peek_char
-              end
+            should_consume, set_unmatched = determine_complex_delimiter_action(lstring_delimiter, rstring_delimiter)
+            if should_consume
+              unmatched_delimiter = true if set_unmatched
+              string_parts << char.to_s
+              @scanner.getch
+              char = peek_char
             end
           end
-
         end
       end
 
@@ -712,6 +577,167 @@ module JsonMend
         string_parts,
         char
       ]
+    end
+
+    def check_doubled_quotes(doubled_quotes, rstring_delimiter)
+      if doubled_quotes && peek_char(1) == rstring_delimiter
+        @scanner.getch
+        return true
+      end
+      false
+    end
+
+    def check_missing_quotes_in_object_value(missing_quotes, lstring_delimiter, rstring_delimiter)
+      return false unless missing_quotes && current_context?(:object_value)
+
+      i = 1
+      next_c = peek_char(i)
+      while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
+        i += 1
+        next_c = peek_char(i)
+      end
+
+      return false unless next_c
+
+      # We found a quote, now let's make sure there's a ":" following
+      i += 1
+      # found a delimiter, now we need to check that is followed strictly by a comma or brace
+      i = skip_whitespaces_at(start_idx: i)
+      next_c = peek_char(i)
+
+      if next_c && next_c == ':'
+        @scanner.pos -= 1
+        return true
+      end
+
+      false
+    end
+
+    def determine_complex_delimiter_action(lstring_delimiter, rstring_delimiter)
+      i = 1
+      next_c = peek_char(i)
+      check_comma_in_object_value = true
+
+      # Check if eventually there is a rstring delimiter, otherwise we bail
+      while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
+        # This is a bit of a weird workaround, essentially in object_value context we don't always break on commas
+        # This is because the routine after will make sure to correct any bad guess and this solves a corner case
+        check_comma_in_object_value = false if check_comma_in_object_value && next_c.match?(/\p{L}/)
+        # If we are in an object context, let's check for the right delimiters
+        if (context_contain?(:object_key) && TERMINATORS_OBJECT_KEY.include?(next_c)) ||
+           (context_contain?(:object_value) && TERMINATORS_OBJECT_KEY.include?(next_c)) ||
+           (context_contain?(:array) && TERMINATORS_ARRAY_ITEM.include?(next_c)) ||
+           (
+             check_comma_in_object_value &&
+             current_context?(:object_value) &&
+             next_c == ','
+           )
+          break
+        end
+
+        i += 1
+        next_c = peek_char(i)
+      end
+
+      # If we stopped for a comma in object_value context, let's check if find a "} at the end of the string
+      if next_c == ',' && current_context?(:object_value)
+        i += 1
+        i = skip_to_character(rstring_delimiter, start_idx: i)
+        peek_char(i)
+        # Ok now I found a delimiter, let's skip whitespaces and see if next we find a } or a ,
+        i += 1
+        i = skip_whitespaces_at(start_idx: i)
+        next_c = peek_char(i)
+        return [true, false] if TERMINATORS_OBJECT_VALUE.include?(next_c)
+      elsif next_c == rstring_delimiter && peek_char(i - 1) != '\\'
+        # Check if self.index:self.index+i is only whitespaces, break if that's the case
+        return [false, false] if (1..i).all? { |j| peek_char(j).to_s.match(/\s/) }
+
+        if current_context?(:object_value)
+          return check_unmatched_in_object_value(i, lstring_delimiter, rstring_delimiter)
+        elsif current_context?(:array)
+          return check_unmatched_in_array(i, rstring_delimiter)
+        elsif current_context?(:object_key)
+          return [true, false]
+        end
+      end
+
+      [false, false]
+    end
+
+    def check_unmatched_in_object_value(i, lstring_delimiter, rstring_delimiter)
+      i = skip_whitespaces_at(start_idx: i + 1)
+      if peek_char(i) == ','
+        # So we found a comma, this could be a case of a single quote like "va"lue",
+        # Search if it's followed by another key, starting with the first delimeter
+        i = skip_to_character(lstring_delimiter, start_idx: i + 1)
+        i += 1
+        i = skip_to_character(rstring_delimiter, start_idx: i + 1)
+        i += 1
+        i = skip_whitespaces_at(start_idx: i)
+        next_c = peek_char(i)
+        return [true, false] if next_c == ':'
+      end
+      # We found a delimiter and we need to check if this is a key
+      # so find a rstring_delimiter and a colon after
+      i = skip_to_character(rstring_delimiter, start_idx: i + 1)
+      i += 1
+      next_c = peek_char(i)
+      while next_c && next_c != ':'
+        if TERMINATORS_VALUE.include?(next_c) || (
+          next_c == rstring_delimiter &&
+          peek_char(i - 1) != '\\'
+        )
+          break
+        end
+
+        i += 1
+        next_c = peek_char(i)
+      end
+
+      # Only if we fail to find a ':' then we know this is misplaced quote
+      return [true, true] if next_c != ':'
+
+      [false, false]
+    end
+
+    def check_unmatched_in_array(_i, rstring_delimiter)
+      # Heuristic: Check if this quote is a closer or internal.
+      # 1. Find the NEXT delimiter (quote) index `j`.
+      j = 1
+      found_next = false
+      while (c = peek_char(j))
+        if c == rstring_delimiter
+          # Check if escaped (count preceding backslashes)
+          bk = 1
+          slashes = 0
+          while j - bk >= 0 && peek_char(j - bk) == '\\'
+            slashes += 1
+            bk += 1
+          end
+          if slashes.even?
+            found_next = true
+            break
+          end
+        end
+        j += 1
+      end
+
+      # 2. Check conditions to STOP (treat as closing quote):
+      #    a) Strictly whitespace between quotes: ["a" "b"]
+      is_whitespace = (1...j).all? { |k| peek_char(k).match?(/\s/) }
+
+      #    b) Next quote is followed by a separator: ["val1" val2",]
+      is_next_closer = false
+      if found_next
+        k = j + 1
+        k += 1 while peek_char(k)&.match?(/\s/) # skip whitespaces
+        is_next_closer = TERMINATORS_VALUE.include?(peek_char(k))
+      end
+
+      return [true, true] unless is_whitespace || is_next_closer
+
+      [false, false]
     end
 
     def check_rstring_delimiter_missing(
@@ -739,7 +765,7 @@ module JsonMend
         # or the string ended
         i = skip_whitespaces_at(start_idx: i)
         next_c = peek_char(i)
-        if next_c.nil? || [',', '}'].include?(next_c)
+        if next_c.nil? || TERMINATORS_OBJECT_VALUE.include?(next_c)
           rstring_delimiter_missing = false
         else
           # OK but this could still be some garbage at the end of the string
@@ -818,8 +844,10 @@ module JsonMend
           end
           return [true, string_parts, char]
         elsif %w[u x].include?(char)
+          entry_pos = @scanner.pos
+          @scanner.getch # consume 'u' or 'x'
+
           num_chars = (char == 'u' ? 4 : 2)
-          saved_pos = @scanner.pos
           hex_parts = []
 
           # Use getch in loop to correctly extract chars (handling multibyte)
@@ -830,18 +858,17 @@ module JsonMend
             hex_parts << c
           end
 
-          @scanner.pos = saved_pos
-
-          if hex_parts.length == num_chars && hex_parts.all? { |c| '0123456789abcdefABCDEF'.include?(c) }
+          # Validate valid hex digits
+          if hex_parts.length == num_chars && hex_parts.all? { |c| c.match?(/[0-9a-fA-F]/) }
             string_parts.pop
             string_parts << hex_parts.join.to_i(16).chr('UTF-8')
 
-            # Advance scanner past the hex digits.
-            # Since hex digits are ASCII, pos += num_chars + 1 (for u/x) works.
-            @scanner.pos += num_chars + 1
-
+            # Scanner is already advanced past digits
             char = peek_char
             return [true, string_parts, char]
+          else
+            # Not a valid escape sequence; backtrack so the main loop can treat 'u'/'x' as literal.
+            @scanner.pos = entry_pos
           end
         elsif STRING_DELIMITERS.include?(char) && char != rstring_delimiter
           string_parts.pop
@@ -873,7 +900,7 @@ module JsonMend
         # Skip spaces
         i = skip_whitespaces_at(start_idx: i)
         next_c = peek_char(i)
-        return true if next_c && [',', '}'].include?(next_c)
+        return true if next_c && TERMINATORS_OBJECT_VALUE.include?(next_c)
       end
 
       false
@@ -905,8 +932,8 @@ module JsonMend
     )
       return false unless missing_quotes
       return true if current_context?(:object_key) && (char == ':' || char.match?(/\s/))
-      return true if current_context?(:object_key) && [']', '}'].include?(char)
-      return true if current_context?(:array) && [']', ','].include?(char)
+      return true if current_context?(:object_key) && TERMINATORS_ARRAY.include?(char)
+      return true if current_context?(:array) && TERMINATORS_ARRAY_ITEM.include?(char)
 
       false
     end
@@ -916,7 +943,7 @@ module JsonMend
     # returning them as a string. It attempts to handle various malformed number
     # inputs that might be generated by LLMs
     def parse_number
-      # OPTIMIZE: Use pre-compiled regex based on context
+      # Use pre-compiled regex based on context
       regex = current_context?(:array) ? NUMBER_NO_COMMA_REGEX : NUMBER_REGEX
 
       scanned_str = @scanner.scan(regex)
@@ -927,7 +954,7 @@ module JsonMend
         # Do not rewind scanner, simply discard the invalid trailing char (garbage)
         scanned_str = scanned_str[0...-1]
       # Handle cases where what looked like a number is actually a string.
-      # e.g., "123-abc"
+      # e.g. "123-abc"
       elsif peek_char&.match?(/\p{L}/)
         # Roll back the entire scan and re-parse as a string.
         @scanner.pos -= scanned_str.bytesize

@@ -689,5 +689,79 @@ RSpec.describe JsonMend do
         end
       end
     end
+
+    context 'when provided tricky edge cases and malformed structures' do
+      [
+        # Duplicate keys: The parser splits this into two objects [{"k":"v1"}, {"k":"v2"}]
+        # The main loop then sees two Hashes and keeps the last one (same_object_type? logic)
+        {
+          input: '{"key": "v1", "key": "v2"}',
+          expected_output: JSON.dump({ 'key' => 'v2' })
+        },
+        # Hexadecimal escape sequences (\xXX)
+        {
+          input: '{"key": "\\x41\\x42\\x43"}',
+          expected_output: JSON.dump({ 'key' => 'ABC' })
+        },
+        # Literals used as unquoted keys
+        {
+          input: '{true: "yes", false: "no", null: "void"}',
+          expected_output: JSON.dump({ 'true' => 'yes', 'false' => 'no', 'null' => 'void' })
+        },
+        # Arrays with leading, trailing, and double commas
+        {
+          input: '[,, 1, , 2,, ]',
+          expected_output: JSON.dump([1, 2])
+        },
+        # Stray colons inside objects (e.g. from missing keys)
+        {
+          input: '{"a": 1, : "garbage", "b": 2}',
+          expected_output: JSON.dump({ 'a' => 1, 'b' => 2 })
+        },
+        # Dangling array merging occurring multiple times in one object
+        {
+          input: '{"k1": [1] [2], "k2": [3] [4]}',
+          expected_output: JSON.dump({ 'k1' => [1, 2], 'k2' => [3, 4] })
+        },
+        # Unclosed string at the very end of the file
+        {
+          input: '{"key": "value_at_eof',
+          expected_output: JSON.dump({ 'key' => 'value_at_eof' })
+        },
+        # Garbage text surrounding valid JSON (Chat logs, headers, etc.)
+        {
+          input: 'Output: {"data": 1} End of Output',
+          expected_output: JSON.dump({ 'data' => 1 })
+        },
+        # Doubled quotes (common hallucination)
+        {
+          input: '{""key"": ""value""}',
+          expected_output: JSON.dump({ 'key' => 'value' })
+        },
+        # Malformed numbers behaving as strings
+        {
+          input: '{"version": 1.2.3}',
+          expected_output: JSON.dump({ 'version' => '1.2.3' })
+        },
+        {
+          input: '{"range": 10-20}',
+          expected_output: JSON.dump({ 'range' => '10-20' })
+        },
+        # Multiple objects of the same type: Only the last one is kept
+        {
+          input: '{"a": 1} {"b": 2}',
+          expected_output: JSON.dump({ 'b' => 2 })
+        },
+        # Multiple objects of different types: All are kept
+        {
+          input: '{"a": 1} [1, 2] {"b": 2}',
+          expected_output: JSON.dump([{ 'a' => 1 }, [1, 2], { 'b' => 2 }])
+        }
+      ].each do |test_case|
+        it "repairs #{test_case[:input]} to #{test_case[:expected_output]}" do
+          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
   end
 end
