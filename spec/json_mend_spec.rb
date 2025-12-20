@@ -457,11 +457,11 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"value_1": true, COMMENT "value_2": "data"}',
-          expected_output: JSON.dump({ value_1: true, value_2: 'data' })
+          expected_output: JSON.dump({ 'value_1' => true, 'value_2' => 'data' })
         },
         {
           input: '{"value_1": true, SHOULD_NOT_EXIST "value_2": "data" AAAA }',
-          expected_output: JSON.dump({ value_1: true, value_2: 'data' })
+          expected_output: JSON.dump({ 'value_1' => true, 'value_2' => 'data' })
         },
         {
           input: '{"" : true, "key2": "value2"}',

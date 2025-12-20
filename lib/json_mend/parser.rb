@@ -342,7 +342,7 @@ module JsonMend
 
       return '' if @scanner.eos?
 
-      return_result, *rest = determine_delimiters(char:)
+      return_result, *rest = determine_delimiters(char: char)
       return rest.first if return_result
 
       lstring_delimiter, rstring_delimiter, missing_quotes = rest
@@ -351,8 +351,8 @@ module JsonMend
 
       # There is sometimes a weird case of doubled quotes, we manage this also later in the while loop
       return_result, *rest = handle_doubled_quotes(
-        lstring_delimiter:,
-        rstring_delimiter:
+        lstring_delimiter: lstring_delimiter,
+        rstring_delimiter: rstring_delimiter
       )
       return rest.first if return_result
 
