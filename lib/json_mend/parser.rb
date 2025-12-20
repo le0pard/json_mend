@@ -487,11 +487,10 @@ module JsonMend
       unmatched_delimiter = false
       # --- Main Parsing Loop ---
       while !@scanner.eos? && char != rstring_delimiter
-        if missing_quotes
-          break if current_context?(:object_key) && (char == ':' || char.match?(/\s/))
-          break if current_context?(:object_key) && [']', '}'].include?(char)
-          break if current_context?(:array) && [']', ','].include?(char)
-        end
+        break if context_termination_reached?(
+          char:,
+          missing_quotes:
+        )
 
         if current_context?(:object_value) && [',', '}'].include?(char) &&
            (string_parts.empty? || string_parts.last != rstring_delimiter)
@@ -898,6 +897,18 @@ module JsonMend
       final_str = final_str.rstrip if missing_quotes || final_str.end_with?("\n")
 
       final_str
+    end
+
+    def context_termination_reached?(
+      char:,
+      missing_quotes:
+    )
+      return false unless missing_quotes
+      return true if current_context?(:object_key) && (char == ':' || char.match?(/\s/))
+      return true if current_context?(:object_key) && [']', '}'].include?(char)
+      return true if current_context?(:array) && [']', ','].include?(char)
+
+      false
     end
 
     # Parses a JSON number, which can be an integer or a floating-point value.
