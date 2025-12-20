@@ -34,7 +34,7 @@ $ gem install json_mend
 
 ## Basic Repair
 
-The primary method is JsonMend.repair. By default, it returns a valid JSON string.
+The primary method is `JsonMend.repair`. By default, it returns a valid JSON string
 
 ```ruby
 require 'json_mend'
@@ -47,7 +47,7 @@ JsonMend.repair(broken_json)
 
 ## Return Ruby Objects
 
-If you want to work with the data immediately, pass `return_objects: true` to get a Hash or Array.
+If you want to work with the data immediately, pass `return_objects: true` to get a `Hash` or `Array`
 
 ```ruby
 result = JsonMend.repair('{"items": [1, 2, 3,]}', return_objects: true)
@@ -56,7 +56,7 @@ result = JsonMend.repair('{"items": [1, 2, 3,]}', return_objects: true)
 
 ## Handling Multiple JSON Objects
 
-If the input contains multiple JSON objects or text mixed with JSON, `JsonMend` attempts to extract and return them as a collection.
+If the input contains multiple JSON objects or text mixed with JSON, `JsonMend` attempts to extract and return them as a collection
 
 ```ruby
 input = 'Results: {"val": 1} and {"val": 2}'
@@ -66,10 +66,10 @@ JsonMend.repair(input, return_objects: true)
 
 # Development
 
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
+After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake spec` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment
 
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`.
+To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`
 
 # License
 
-The gem is available as open source under the terms of the MIT License.
+The gem is available as open source under the terms of the MIT License
