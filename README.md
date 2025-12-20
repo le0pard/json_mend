@@ -4,11 +4,11 @@
 
 ## Features
 
-* **Lenient Parsing**: Handles single quotes, slanted quotes (`“...”`), and unquoted keys or values.
-* **LLM Error Correction**: Fixes common LLM "hallucinations" like truncated JSON, missing closing brackets/braces, and `...` placeholders.
-* **Comment Stripping**: Automatically removes JavaScript-style (`//`, `/* */`) and Ruby/Shell-style (`#`) comments.
-* **Flexible Output**: Can return either a repaired JSON string or a native Ruby Hash/Array.
-* **Heuristic Repair**: Includes advanced logic to merge dangling arrays and handle duplicate keys by splitting objects.
+* **Lenient Parsing**: Handles single quotes, slanted quotes (`“...”`), and unquoted keys or values
+* **LLM Error Correction**: Fixes common LLM "hallucinations" like truncated JSON, missing closing brackets/braces, and `...` placeholders
+* **Comment Stripping**: Automatically removes JavaScript-style (`//`, `/* */`) and Ruby/Shell-style (`#`) comments
+* **Flexible Output**: Can return either a repaired JSON string or a native Ruby Hash/Array
+* **Heuristic Repair**: Includes advanced logic to merge dangling arrays and handle duplicate keys by splitting objects
 
 ## Installation
 
@@ -51,17 +51,7 @@ If you want to work with the data immediately, pass `return_objects: true` to ge
 
 ```ruby
 result = JsonMend.repair('{"items": [1, 2, 3,]}', return_objects: true)
-# => {"items"=>[1, 2, 3]}
-```
-
-## Handling Multiple JSON Objects
-
-If the input contains multiple JSON objects or text mixed with JSON, `JsonMend` attempts to extract and return them as a collection
-
-```ruby
-input = 'Results: {"val": 1} and {"val": 2}'
-JsonMend.repair(input, return_objects: true)
-# => [{"val"=>1}, {"val"=>2}]
+# => {"items" => [1, 2, 3]}
 ```
 
 # Development
