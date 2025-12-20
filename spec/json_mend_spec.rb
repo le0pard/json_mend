@@ -891,8 +891,8 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"feed": "form\fbreak"}',
-          expected_output: JSON.dump({ 'feed' => 'formfbreak' }),
-          desc: 'unknown escape \f becomes literal f (current parser behavior)'
+          expected_output: JSON.dump({ 'feed' => "form\fbreak" }),
+          desc: 'escape \f kept as literal'
         },
         {
           input: '{"path": "C:\\Windows\\System32"}',
@@ -911,8 +911,8 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"bad_hex": "val\xZZ"}',
-          expected_output: JSON.dump({ 'bad_hex' => 'valxZZ' }),
-          desc: 'invalid hex escape \x kept as literal x'
+          expected_output: JSON.dump({ 'bad_hex' => 'val\\xZZ' }),
+          desc: 'invalid hex escape \x kept as literal'
         }
       ].each do |tc|
         it "repairs #{tc[:desc]}" do

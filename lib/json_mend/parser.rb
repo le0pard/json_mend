@@ -14,7 +14,8 @@ module JsonMend
       't' => "\t",
       'n' => "\n",
       'r' => "\r",
-      'b' => "\b"
+      'b' => "\b",
+      'f' => "\f"
     }.freeze
     JSON_STOP_TOKEN = :json_mend_stop_token
 
