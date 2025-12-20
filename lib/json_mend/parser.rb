@@ -128,6 +128,13 @@ module JsonMend
       loop do
         skip_whitespaces
 
+        # Explicitly consume comments to ensure they don't hide separators (like commas)
+        # or get parsed as part of the next key.
+        if COMMENT_DELIMETERS.include?(peek_char)
+          parse_comment
+          next
+        end
+
         # >> PRIMARY EXIT: End of object or end of string.
         break if @scanner.eos? || @scanner.scan('}') || peek_char == ']'
 

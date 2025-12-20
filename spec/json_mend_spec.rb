@@ -1024,7 +1024,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"key": "value"//comment\n, "next": 1}',
-          expected_output: JSON.dump({ 'key' => 'value', '' => 1 }),
+          expected_output: JSON.dump({ 'key' => 'value', 'next' => 1 }),
           desc: 'line comment replacing comma'
         },
         {
