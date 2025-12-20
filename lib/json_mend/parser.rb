@@ -379,18 +379,12 @@ module JsonMend
         return '' unless [':', ','].include?(peek_char)
       end
 
-      # A fallout of the previous special case in the while loop,
-      # we need to update the index only if we had a closing quote
-      if char == rstring_delimiter
-        @scanner.getch
-      elsif missing_quotes && current_context?(:object_key) && string_parts.last == ','
-        string_parts.pop
-      end
-
-      final_str = string_parts.join
-      final_str = final_str.rstrip if missing_quotes || final_str.end_with?("\n")
-
-      final_str
+      finalize_parsed_string(
+        string_parts:,
+        char:,
+        rstring_delimiter:,
+        missing_quotes:
+      )
     end
 
     # string helper methods
@@ -884,6 +878,26 @@ module JsonMend
       end
 
       false
+    end
+
+    def finalize_parsed_string(
+      string_parts:,
+      char:,
+      rstring_delimiter:,
+      missing_quotes:
+    )
+      # A fallout of the previous special case in the while loop,
+      # we need to update the index only if we had a closing quote
+      if char == rstring_delimiter
+        @scanner.getch
+      elsif missing_quotes && current_context?(:object_key) && string_parts.last == ','
+        string_parts.pop
+      end
+
+      final_str = string_parts.join
+      final_str = final_str.rstrip if missing_quotes || final_str.end_with?("\n")
+
+      final_str
     end
 
     # Parses a JSON number, which can be an integer or a floating-point value.
