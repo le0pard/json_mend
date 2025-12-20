@@ -5,7 +5,7 @@ require 'set'
 
 # Root module
 module JsonMend
-  # The core parser that does the heavy lifting of fixing the JSON.
+  # The core parser that does the heavy lifting of fixing the JSON
   class Parser
     COMMENT_DELIMETERS = ['#', '/'].freeze
     NUMBER_CHARS = Set.new('0123456789-.eE/,'.chars).freeze
@@ -27,12 +27,12 @@ module JsonMend
       @context = []
     end
 
-    # Kicks off the parsing process. This is a direct port of the robust Python logic.
+    # Kicks off the parsing process. This is a direct port of the robust Python logic
     def parse
       json = parse_json
 
-      # If the first parse returns JSON_STOP_TOKEN, it means we found nothing (empty string or garbage).
-      # Return nil (or empty string representation logic elsewhere handles it).
+      # If the first parse returns JSON_STOP_TOKEN, it means we found nothing (empty string or garbage)
+      # Return nil (or empty string representation logic elsewhere handles it)
       return nil if json == JSON_STOP_TOKEN
 
       unless @scanner.eos?
@@ -78,7 +78,7 @@ module JsonMend
           if string_start?(char)
             if @context.empty? && !STRING_DELIMITERS.include?(char)
               # Top level unquoted string strictness:
-              # Only allow literals (true/false/null), ignore other text as garbage.
+              # Only allow literals (true/false/null), ignore other text as garbage
               val = parse_literal
               return val if val != ''
 
@@ -366,7 +366,7 @@ module JsonMend
       # * It finds a closing quote
       # * It iterated over the entire sequence
       # * If we are fixing missing quotes in an object, when it finds the special terminators
-      string_parts, char, = check_rstring_delimiter_missing(
+      string_parts, char = check_rstring_delimiter_missing(
         string_parts:,
         lstring_delimiter:,
         rstring_delimiter:,
@@ -837,8 +837,7 @@ module JsonMend
 
       [
         string_parts,
-        char,
-        unmatched_delimiter
+        char
       ]
     end
 
