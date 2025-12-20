@@ -983,7 +983,7 @@ module JsonMend
         elsif scanned_str.match?(/[.eE]/)
           Float(scanned_str)
         else
-          Integer(scanned_str)
+          Integer(scanned_str, 10)
         end
       rescue ArgumentError
         scanned_str
@@ -1114,9 +1114,8 @@ module JsonMend
       res
     end
 
-    # Helper to check if two objects are of the same container type (Array or Hash).
     def same_object_type?(obj1, obj2)
-      (obj1.is_a?(Array) && obj2.is_a?(Array)) || (obj1.is_a?(Hash) && obj2.is_a?(Hash))
+      obj1.is_a?(Hash) && obj2.is_a?(Hash)
     end
 
     def strictly_empty?(value)

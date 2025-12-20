@@ -82,7 +82,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '[{"key":"value"}][{"key":"value_after"}]',
-          expected_output: JSON.dump([{ key: 'value_after' }])
+          expected_output: JSON.dump([[{ key: 'value' }], [{ key: 'value_after' }]])
         },
         {
           input: '{"key": ""',
@@ -941,6 +941,111 @@ RSpec.describe JsonMend do
       ].each do |tc|
         it "repairs #{tc[:desc]}" do
           expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end
+      end
+    end
+
+    context 'edge cases' do
+      [
+        {
+          input: '[ "key": "value", "key2": "value2" ]',
+          expected_output: JSON.dump([{ 'key' => 'value', 'key2' => 'value2' }]),
+          desc: 'implicit objects inside array without curly braces'
+        },
+        {
+          input: '[ "key": "value", 123, "key2": "value2" ]',
+          expected_output: JSON.dump([{ 'key' => 'value', 'key2' => 'value2' }]),
+          desc: 'mixed implicit objects and literals in array'
+        },
+        {
+          input: '{ ["complex", "key"]: "value" }',
+          expected_output: JSON.dump({ 'complex' => 'value' }),
+          desc: 'array used as an object key'
+        },
+        {
+          input: '{ [1, 2]: "value" }',
+          expected_output: JSON.dump({ '1' => 'value' }),
+          desc: 'number array used as an object key'
+        },
+        {
+          input: '{"a": 1} } ] garbage_text {"b": 2}',
+          expected_output: JSON.dump({ 'b' => 2 }),
+          desc: 'garbage and closing brackets between objects'
+        },
+        {
+          input: '{"a": 1} .... {"b": 2}',
+          expected_output: JSON.dump([{ 'a' => 1 }, '....', { 'b' => 2 }]),
+          desc: 'dots/garbage between objects'
+        },
+        {
+          input: '{"a": [1], "b": 2} [3]',
+          expected_output: JSON.dump([{ 'a' => [1], 'b' => 2 }, [3]]),
+          desc: 'does not merge dangling array if previous value is not an array'
+        },
+        {
+          input: '{"a": [1], "b": [2]} [3]',
+          expected_output: JSON.dump([{ 'a' => [1], 'b' => [2] }, [3]]),
+          desc: 'merges dangling array into array'
+        },
+        {
+          input: '{"a": [1]} [2, 3] [4]',
+          expected_output: JSON.dump([{ 'a' => [1] }, [2, 3], [4]]),
+          desc: 'chained dangling array merges'
+        },
+        {
+          input: '{""key"": "value", "key2": ""value2""}',
+          expected_output: JSON.dump({ 'key' => 'value', 'key2' => 'value2' }),
+          desc: 'mixed doubled and normal quotes'
+        },
+        {
+          input: '{ ""key": "value" }',
+          expected_output: JSON.dump({ 'key' => 'value' }),
+          desc: 'asymmetric doubled quotes on key start'
+        },
+        {
+          input: '{"a": 1.23E+5, "b": 1.23e-2}',
+          expected_output: JSON.dump({ 'a' => 123_000.0, 'b' => 0.0123 }),
+          desc: 'valid scientific notation with E and e'
+        },
+        {
+          input: '{"a": 123., "b": .456}',
+          expected_output: JSON.dump({ 'a' => 123.0, 'b' => 0.456 }),
+          desc: 'numbers with trailing or leading dots'
+        },
+        {
+          input: '{"a": 00123}',
+          expected_output: JSON.dump({ 'a' => 123 }),
+          desc: 'leading zeros'
+        },
+        {
+          input: '{"key"/*comment*/: "value"}',
+          expected_output: JSON.dump({ 'key' => 'value' }),
+          desc: 'block comment between key and colon'
+        },
+        {
+          input: '{"key": "value"//comment\n, "next": 1}',
+          expected_output: JSON.dump({ 'key' => 'value', '' => 1 }),
+          desc: 'line comment replacing comma'
+        },
+        {
+          input: '{"a": "line\nfeed", "b": "back\bspace", "c": "form\ffeed", "d": "tab\tchar"}',
+          expected_output: JSON.dump({ 'a' => "line\nfeed", 'b' => "back\bspace", 'c' => "form\ffeed",
+                                       'd' => "tab\tchar" }),
+          desc: 'standard JSON escape sequences'
+        },
+        {
+          input: '{"a": {"b": {"c": [1, 2',
+          expected_output: JSON.dump({ 'a' => { 'b' => { 'c' => [1, 2] } } }),
+          desc: 'deeply nested unclosed objects and arrays'
+        },
+        {
+          input: '{key-dash: "value", key_underscore: "value", key$dollar: "value"}',
+          expected_output: JSON.dump({ 'key-dash' => 'value', 'key_underscore' => 'value', 'key$dollar' => 'value' }),
+          desc: 'unquoted keys with special allowed characters'
+        }
+      ].each do |test_case|
+        it "repairs #{test_case[:desc]}" do
+          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
         end
       end
     end
