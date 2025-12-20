@@ -700,7 +700,7 @@ RSpec.describe JsonMend do
     context 'when provided tricky edge cases and malformed structures' do
       [
         # Duplicate keys: The parser splits this into two objects [{"k":"v1"}, {"k":"v2"}]
-        # The main loop then sees two Hashes and keeps the last one (same_object_type? logic)
+        # The main loop then sees two Hashes and keeps the last one (both_hash? logic)
         {
           input: '{"key": "v1", "key": "v2"}',
           expected_output: JSON.dump({ 'key' => 'v2' })

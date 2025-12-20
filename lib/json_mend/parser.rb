@@ -63,7 +63,7 @@ module JsonMend
             # Ignore strings that look like closing braces garbage (e.g. "}", " ] ")
             next if new_json.is_a?(String) && new_json.strip.match?(/^[}\]]+$/)
 
-            json.pop if same_object_type?(json.last, new_json)
+            json.pop if both_hash?(json.last, new_json)
             json << new_json
           end
         end
@@ -1121,7 +1121,7 @@ module JsonMend
       res
     end
 
-    def same_object_type?(obj1, obj2)
+    def both_hash?(obj1, obj2)
       obj1.is_a?(Hash) && obj2.is_a?(Hash)
     end
 
