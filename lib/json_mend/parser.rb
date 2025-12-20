@@ -531,59 +531,17 @@ module JsonMend
 
         if !@scanner.eos? && string_parts.last == '\\'
           # This is a special case, if people use real strings this might happen
-          if [rstring_delimiter, 't', 'n', 'r', 'b', '\\'].include?(char)
-            string_parts.pop
-            string_parts << ESCAPE_MAPPING.fetch(char, char)
-
-            @scanner.getch # Consume the character
-            char = peek_char
-            while !@scanner.eos? && string_parts.last == '\\' && [rstring_delimiter, '\\'].include?(char)
-              # this is a bit of a special case, if I don't do this it will close the loop or create a train of \\
-              # I don't love it though
-              string_parts.pop
-              string_parts << char
-              @scanner.getch # Consume the character
-              char = peek_char
-            end
-            next
-          elsif %w[u x].include?(char)
-            num_chars = (char == 'u' ? 4 : 2)
-            saved_pos = @scanner.pos
-            hex_parts = []
-
-            # Use getch in loop to correctly extract chars (handling multibyte)
-            num_chars.times do
-              c = @scanner.getch
-              break unless c
-
-              hex_parts << c
-            end
-
-            @scanner.pos = saved_pos
-
-            if hex_parts.length == num_chars && hex_parts.all? { |c| '0123456789abcdefABCDEF'.include?(c) }
-              string_parts.pop
-              string_parts << hex_parts.join.to_i(16).chr('UTF-8')
-
-              # Advance scanner past the hex digits.
-              # Since hex digits are ASCII, pos += num_chars + 1 (for u/x) works.
-              @scanner.pos += num_chars + 1
-
-              char = peek_char
-              next
-            end
-          elsif STRING_DELIMITERS.include?(char) && char != rstring_delimiter
-            string_parts.pop
-            string_parts << char
-            @scanner.getch # Consume the character
-            char = peek_char
-            next
-          end
+          is_next, string_parts, char = parse_escape_sequence(
+            string_parts:,
+            char:,
+            rstring_delimiter:
+          )
+          next if is_next
         end
 
         # If we are in object key context and we find a colon, it could be a missing right quote
         if char == ':' && !missing_quotes && current_context?(:object_key)
-          is_break = is_misplaced_quote?(
+          is_break = handle_missing_quotes_termination(
             lstring_delimiter:,
             rstring_delimiter:
           )
@@ -844,7 +802,67 @@ module JsonMend
       rstring_delimiter_missing
     end
 
-    def is_misplaced_quote?(
+    def parse_escape_sequence(
+      string_parts:,
+      char:,
+      rstring_delimiter:
+    )
+      if !@scanner.eos? && string_parts.last == '\\'
+        # This is a special case, if people use real strings this might happen
+        if [rstring_delimiter, 't', 'n', 'r', 'b', '\\'].include?(char)
+          string_parts.pop
+          string_parts << ESCAPE_MAPPING.fetch(char, char)
+
+          @scanner.getch # Consume the character
+          char = peek_char
+          while !@scanner.eos? && string_parts.last == '\\' && [rstring_delimiter, '\\'].include?(char)
+            # this is a bit of a special case, if I don't do this it will close the loop or create a train of \\
+            # I don't love it though
+            string_parts.pop
+            string_parts << char
+            @scanner.getch # Consume the character
+            char = peek_char
+          end
+          return [true, string_parts, char]
+        elsif %w[u x].include?(char)
+          num_chars = (char == 'u' ? 4 : 2)
+          saved_pos = @scanner.pos
+          hex_parts = []
+
+          # Use getch in loop to correctly extract chars (handling multibyte)
+          num_chars.times do
+            c = @scanner.getch
+            break unless c
+
+            hex_parts << c
+          end
+
+          @scanner.pos = saved_pos
+
+          if hex_parts.length == num_chars && hex_parts.all? { |c| '0123456789abcdefABCDEF'.include?(c) }
+            string_parts.pop
+            string_parts << hex_parts.join.to_i(16).chr('UTF-8')
+
+            # Advance scanner past the hex digits.
+            # Since hex digits are ASCII, pos += num_chars + 1 (for u/x) works.
+            @scanner.pos += num_chars + 1
+
+            char = peek_char
+            return [true, string_parts, char]
+          end
+        elsif STRING_DELIMITERS.include?(char) && char != rstring_delimiter
+          string_parts.pop
+          string_parts << char
+          @scanner.getch # Consume the character
+          char = peek_char
+          return [true, string_parts, char]
+        end
+      end
+
+      [false, string_parts, char]
+    end
+
+    def handle_missing_quotes_termination(
       lstring_delimiter:,
       rstring_delimiter:
     )
