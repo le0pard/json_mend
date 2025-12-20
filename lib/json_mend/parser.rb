@@ -26,6 +26,11 @@ module JsonMend
     TERMINATORS_STRING_GUESSED = ['{', '}', '[', ']', ':', ','].freeze
     TERMINATORS_VALUE = [',', ']', '}'].freeze
     STRING_OR_OBJECT_START = (STRING_DELIMITERS + ['{', '[']).freeze
+    SKIPPED_KEYS = %i[merged_array stray_colon].freeze
+    BOOLEAN_OR_NULL_CHARS = %w[t f n].freeze
+    ESCAPE_START_CHARS = %w[t n r b \\].freeze
+    HEX_ESCAPE_PREFIXES = %w[u x].freeze
+    INVALID_NUMBER_TRAILERS = ['-', 'e', 'E', ','].freeze
 
     # Pre-compile regexes for performance
     NUMBER_REGEX = /[#{Regexp.escape(NUMBER_CHARS.to_a.join)}]+/
@@ -131,7 +136,7 @@ module JsonMend
 
         # --- Delegate to a helper to parse the next Key-Value pair ---
         key, value, colon_found = parse_object_pair(object)
-        next if %i[merged_array stray_colon].include?(key)
+        next if SKIPPED_KEYS.include?(key)
 
         # If the helper returns nil for the key, it signals that we should
         # stop parsing this object (e.g. a duplicate key was found,
@@ -288,7 +293,7 @@ module JsonMend
         char = peek_char
 
         # Check for comments explicitly inside array to avoid recursion or garbage consumption issues
-        if ['#', '/'].include?(char)
+        if COMMENT_DELIMETERS.include?(char)
           parse_comment
           char = peek_char
           next
@@ -312,7 +317,7 @@ module JsonMend
           # Do nothing, just skipped garbage
         elsif strictly_empty?(value)
           # Only consume if we didn't just hit a terminator that parse_json successfully respected
-          @scanner.getch unless value.nil? && ['}', ']'].include?(peek_char)
+          @scanner.getch unless value.nil? && TERMINATORS_ARRAY.include?(peek_char)
         elsif value == '...' && @scanner.string.getbyte(@scanner.pos - 1) == 46
           # just skip if the previous byte was a dot (46)
         else
@@ -402,7 +407,7 @@ module JsonMend
       char = peek_char
 
       # Consume comments that appear before the string starts
-      while ['#', '/'].include?(char)
+      while COMMENT_DELIMETERS.include?(char)
         parse_comment
         char = peek_char
       end
@@ -423,7 +428,7 @@ module JsonMend
         rstring_delimiter = '”'
       when /[\p{L}0-9]/
         # Could be a boolean/null, but not if it's an object key.
-        if %w[t f n].include?(char.downcase) && !current_context?(:object_key)
+        if BOOLEAN_OR_NULL_CHARS.include?(char.downcase) && !current_context?(:object_key)
           # parse_literal is non-destructive if it fails to match.
           value = parse_literal
           return [true, value] if value != ''
@@ -828,13 +833,13 @@ module JsonMend
     )
       if !@scanner.eos? && string_parts.last == '\\'
         # This is a special case, if people use real strings this might happen
-        if [rstring_delimiter, 't', 'n', 'r', 'b', '\\'].include?(char)
+        if char == rstring_delimiter || ESCAPE_START_CHARS.include?(char)
           string_parts.pop
           string_parts << ESCAPE_MAPPING.fetch(char, char)
 
           @scanner.getch # Consume the character
           char = peek_char
-          while !@scanner.eos? && string_parts.last == '\\' && [rstring_delimiter, '\\'].include?(char)
+          while !@scanner.eos? && string_parts.last == '\\' && (char == rstring_delimiter || char == '\\')
             # this is a bit of a special case, if I don't do this it will close the loop or create a train of \\
             # I don't love it though
             string_parts.pop
@@ -843,7 +848,7 @@ module JsonMend
             char = peek_char
           end
           return [true, string_parts, char]
-        elsif %w[u x].include?(char)
+        elsif HEX_ESCAPE_PREFIXES.include?(char)
           entry_pos = @scanner.pos
           @scanner.getch # consume 'u' or 'x'
 
@@ -950,7 +955,7 @@ module JsonMend
       return nil unless scanned_str
 
       # Handle cases where the number ends with an invalid character.
-      if !scanned_str.empty? && ['-', 'e', 'E', ','].include?(scanned_str[-1])
+      if !scanned_str.empty? && INVALID_NUMBER_TRAILERS.include?(scanned_str[-1])
         # Do not rewind scanner, simply discard the invalid trailing char (garbage)
         scanned_str = scanned_str[0...-1]
       # Handle cases where what looked like a number is actually a string.

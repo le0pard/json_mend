@@ -1,4 +1,10 @@
 # frozen_string_literal: true
+require 'timeout'
+
+# Helper to enforce timeout for these specific tests
+def with_timeout(seconds = 1)
+  Timeout.timeout(seconds) { yield }
+end
 
 RSpec.describe JsonMend do
   it 'has a version number' do
@@ -760,6 +766,59 @@ RSpec.describe JsonMend do
       ].each do |test_case|
         it "repairs #{test_case[:input]} to #{test_case[:expected_output]}" do
           expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
+
+    context 'when checking for infinite loops and hanging' do
+      [
+        {
+          input: '{"key": "value" : : : : : : : : : :}',
+          description: 'repeated stray colons'
+        },
+        {
+          input: '{"key": "value", , , , , , , , , , }',
+          description: 'repeated commas'
+        },
+        {
+          input: '[' * 500 + ']' * 500,
+          description: 'deeply nested arrays'
+        },
+        {
+          input: '{"k": [1] [2] [3] [4] [5] [6] [7] [8] [9] [10]}',
+          description: 'repeated dangling array merges'
+        },
+        {
+          input: '"' + ('\\\\' * 500) + '"',
+          description: 'massive backslash sequence'
+        },
+        {
+          input: '{"k": "' + ('\\u' * 100) + '"}',
+          description: 'repeated broken unicode escapes'
+        },
+        {
+          input: '/* ' + ('*' * 1000),
+          description: 'unclosed block comment with repeating chars'
+        },
+        {
+          input: '{"key": "start_of_string_and_no_end_' + ('a' * 1000),
+          description: 'long unclosed string at EOS'
+        },
+        {
+          input: '{"k": ""v"" ""v"" ""v""}',
+          description: 'repeated doubled quotes'
+        },
+        {
+          input: '{' + ('"": 1, ' * 100) + '}',
+          description: 'repeated empty keys'
+        }
+      ].each do |test_case|
+        it "does not hang on #{test_case[:description]}" do
+          expect {
+            with_timeout(2) do
+              described_class.repair(test_case[:input])
+            end
+          }.not_to raise_error
         end
       end
     end
