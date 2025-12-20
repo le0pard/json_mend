@@ -330,17 +330,9 @@ module JsonMend
     # many common errors found in LLM-generated JSON, such as missing quotes,
     # incorrect escape sequences, and ambiguous string terminators
     def parse_string
-      char = peek_char
-
-      # Consume comments that appear before the string starts
-      while ['#', '/'].include?(char)
-        parse_comment
-        char = peek_char
-      end
+      char = prepare_string_parsing
 
       doubled_quotes = false
-      missing_quotes = false
-      lstring_delimiter = rstring_delimiter = '"'
 
       # A valid string can only start with a valid quote or, in our case, with a literal
       while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char.match?(/[\p{L}0-9]/)
@@ -352,23 +344,10 @@ module JsonMend
 
       return '' if @scanner.eos?
 
-      # --- Determine Delimiters and Handle Unquoted Literals ---
-      case char
-      when "'"
-        lstring_delimiter = rstring_delimiter = "'"
-      when '“'
-        lstring_delimiter = '“'
-        rstring_delimiter = '”'
-      when /[\p{L}0-9]/
-        # Could be a boolean/null, but not if it's an object key.
-        if %w[t f n].include?(char.downcase) && !current_context?(:object_key)
-          # parse_literal is non-destructive if it fails to match.
-          value = parse_literal
-          return value if value != ''
-        end
-        # While parsing a string, we found a literal instead of a quote
-        missing_quotes = true
-      end
+      return_result, *rest = determine_delimiters(char:)
+      return rest.first if return_result
+
+      lstring_delimiter, rstring_delimiter, missing_quotes = rest
 
       @scanner.getch unless missing_quotes
 
@@ -778,6 +757,45 @@ module JsonMend
       final_str = final_str.rstrip if missing_quotes || final_str.end_with?("\n")
 
       final_str
+    end
+
+    # string helper methods
+
+    def prepare_string_parsing
+      char = peek_char
+
+      # Consume comments that appear before the string starts
+      while ['#', '/'].include?(char)
+        parse_comment
+        char = peek_char
+      end
+
+      char
+    end
+
+    def determine_delimiters(char:)
+      missing_quotes = false
+      lstring_delimiter = rstring_delimiter = '"'
+
+      # --- Determine Delimiters and Handle Unquoted Literals ---
+      case char
+      when "'"
+        lstring_delimiter = rstring_delimiter = "'"
+      when '“'
+        lstring_delimiter = '“'
+        rstring_delimiter = '”'
+      when /[\p{L}0-9]/
+        # Could be a boolean/null, but not if it's an object key.
+        if %w[t f n].include?(char.downcase) && !current_context?(:object_key)
+          # parse_literal is non-destructive if it fails to match.
+          value = parse_literal
+          return [true, value] if value != ''
+        end
+        # While parsing a string, we found a literal instead of a quote
+        missing_quotes = true
+      end
+
+      [false, lstring_delimiter, rstring_delimiter, missing_quotes]
     end
 
     # Parses a JSON number, which can be an integer or a floating-point value.
