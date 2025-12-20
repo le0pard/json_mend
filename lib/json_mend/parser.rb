@@ -366,7 +366,7 @@ module JsonMend
       # * It finds a closing quote
       # * It iterated over the entire sequence
       # * If we are fixing missing quotes in an object, when it finds the special terminators
-      string_parts, char = check_rstring_delimiter_missing(
+      string_parts, char = check_unmatched_delimiters(
         string_parts:,
         lstring_delimiter:,
         rstring_delimiter:,
@@ -482,7 +482,7 @@ module JsonMend
     # * It finds a closing quote
     # * It iterated over the entire sequence
     # * If we are fixing missing quotes in an object, when it finds the special terminators
-    def check_rstring_delimiter_missing(
+    def check_unmatched_delimiters(
       string_parts:,
       lstring_delimiter:,
       rstring_delimiter:,
