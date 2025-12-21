@@ -1146,7 +1146,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{{{{{{',
-          expected_output: JSON.dump({ '' => { '' => {} } })
+          expected_output: JSON.dump({})
         },
         {
           input: 'random garbage text',
@@ -1158,6 +1158,47 @@ RSpec.describe JsonMend do
         }
       ].each do |test_case|
         it "robustly handles garbage: #{test_case[:input]}" do
+          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
+
+    context 'when provided deeply nested or repeated empty structures' do
+      [
+        {
+          input: '{{}}',
+          expected_output: JSON.dump({})
+        },
+        {
+          input: '{{{{"a": 1}}}}',
+          expected_output: JSON.dump({ 'a' => 1 })
+        },
+        {
+          input: '[[[]]]',
+          expected_output: JSON.dump([[[]]])
+        },
+        {
+          input: '{}{}{}',
+          # Explanation: The parser collapses consecutive top-level objects
+          expected_output: JSON.dump({})
+        },
+        {
+          input: '[{}, {}, {}]',
+          # Explanation: Inside an array, objects are preserved as elements
+          expected_output: JSON.dump([{}, {}, {}])
+        },
+        {
+          input: '{{ "a": 1 } { "b": 2 }}',
+          # Explanation: effectively parses as { "a": 1 }, then { "b": 2 }.
+          # Top level logic keeps the last object.
+          expected_output: JSON.dump({ 'b' => 2 })
+        },
+        {
+          input: '[[[[1]]]]',
+          expected_output: JSON.dump([[[[1]]]])
+        }
+      ].each do |test_case|
+        it "repairs #{test_case[:input]} to #{test_case[:expected_output]}" do
           expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
         end
       end

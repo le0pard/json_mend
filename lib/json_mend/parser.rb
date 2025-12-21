@@ -190,7 +190,7 @@ module JsonMend
       end
 
       # If we get an empty key and the next character is a closing brace, we're done.
-      return [nil, nil, false] if key.empty? && (peek_char.nil? || peek_char == '}')
+      return [nil, nil, false] if key.empty? && (peek_char.nil? || peek_char == '}' || @scanner.pos == pos_before_key)
 
       # --- 2. Handle Duplicate Keys (Safer Method) ---
       # This is a critical repair for lists of objects missing a comma separator.
@@ -242,7 +242,7 @@ module JsonMend
       @context.pop
 
       # If the key is empty, consume any stray characters to prevent infinite loops.
-      @scanner.getch if key.empty? && !@scanner.check(/[:}]/) && !@scanner.eos?
+      @scanner.getch if key.empty? && !@scanner.check(/[:{\[}\]]/) && !@scanner.eos?
 
       [key, false, is_bracketed] # Signal that a key was parsed.
     end
