@@ -1,9 +1,7 @@
 name: Push gem to RubyGems.org
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 jobs:
   push:
