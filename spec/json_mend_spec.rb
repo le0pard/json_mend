@@ -945,7 +945,7 @@ RSpec.describe JsonMend do
       end
     end
 
-    context 'edge cases' do
+    context 'with edge cases' do
       [
         {
           input: '[ "key": "value", "key2": "value2" ]',
@@ -1045,6 +1045,130 @@ RSpec.describe JsonMend do
         }
       ].each do |test_case|
         it "repairs #{test_case[:desc]}" do
+          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
+
+    context 'when provided valid complex standard json' do
+      [
+        {
+          input: '{"simple": "string", "number": 123, "bool": true, "nil": null}',
+          expected_output: JSON.dump({ simple: 'string', number: 123, bool: true, nil: nil })
+        },
+        {
+          input: '{"nested": {"array": [1, 2, {"deep": "obj"}]}}',
+          expected_output: JSON.dump({ nested: { array: [1, 2, { deep: 'obj' }] } })
+        },
+        {
+          input: '{"unicode": "こんにちは", "emoji": "👍"}',
+          expected_output: JSON.dump({ unicode: 'こんにちは', emoji: '👍' })
+        },
+        {
+          input: '{"escapes":"\" \\\\ / \\b \\f \\n \\r \\t"}',
+          expected_output: JSON.dump({ escapes: "\" \\ / \b \f \n \r \t" })
+        },
+        {
+          input: '{"empty_obj": {}, "empty_arr": []}',
+          expected_output: JSON.dump({ empty_obj: {}, empty_arr: [] })
+        }
+      ].each do |test_case|
+        it "preserves valid json: #{test_case[:input]}" do
+          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
+
+    context 'when provided ambiguous number formats' do
+      [
+        {
+          input: '{"thousands": 1,234}',
+          expected_output: JSON.dump({ thousands: 1.234 })
+        },
+        {
+          input: '{"multi_comma": 1,234,567}',
+          expected_output: JSON.dump({ multi_comma: '1,234,567' })
+        },
+        {
+          input: '{"trailing_minus": 123-}',
+          expected_output: JSON.dump({ trailing_minus: 123 })
+        },
+        {
+          input: '{"underscores": 1_000}',
+          expected_output: JSON.dump({ underscores: 1000 })
+        }
+      ].each do |test_case|
+        it "repairs number format #{test_case[:input]} to #{test_case[:expected_output]}" do
+          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
+
+    context 'when provided tricky unicode and escapes' do
+      [
+        {
+          input: '{"short_unicode": "\\u12"}',
+          expected_output: JSON.dump({ short_unicode: '\\u12' })
+        },
+        {
+          input: '{"broken_escape": "val\\"}',
+          expected_output: JSON.dump({ broken_escape: 'val"' })
+        },
+        {
+          input: '{"hex_escape": "\\x41"}',
+          expected_output: JSON.dump({ hex_escape: 'A' })
+        }
+      ].each do |test_case|
+        it "handles escapes in #{test_case[:input]}" do
+          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
+
+    context 'when merging dangling arrays with interference' do
+      [
+        {
+          input: '{"a": [1] /* comment */ [2]}',
+          expected_output: JSON.dump({ 'a' => [1, 2] }),
+          desc: 'dangling array merge with intervening block comment'
+        },
+        {
+          input: "{\"a\": [1] // comment \n [2]}",
+          expected_output: JSON.dump({ 'a' => [1, 2] }),
+          desc: 'dangling array merge with intervening line comment'
+        },
+        {
+          input: '{"a": [1], "b": [3] [4]}',
+          expected_output: JSON.dump({ 'a' => [1], 'b' => [3, 4] }),
+          desc: 'dangling array on second key'
+        }
+      ].each do |tc|
+        it "repairs #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end
+      end
+    end
+
+    context 'when provided unbalanced or garbage inputs' do
+      [
+        {
+          input: ']]]]]]',
+          expected_output: ''
+        },
+        {
+          input: '{{{{{{',
+          expected_output: JSON.dump({ '' => { '' => {} } })
+        },
+        {
+          input: 'random garbage text',
+          expected_output: ''
+        },
+        {
+          input: '{"key": "value"} random garbage',
+          expected_output: JSON.dump({ key: 'value' })
+        }
+      ].each do |test_case|
+        it "robustly handles garbage: #{test_case[:input]}" do
           expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
         end
       end

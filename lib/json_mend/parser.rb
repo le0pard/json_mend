@@ -8,7 +8,7 @@ module JsonMend
   # The core parser that does the heavy lifting of fixing the JSON
   class Parser
     COMMENT_DELIMETERS = ['#', '/'].freeze
-    NUMBER_CHARS = Set.new('0123456789-.eE/,'.chars).freeze
+    NUMBER_CHARS = Set.new('0123456789-.eE/,_'.chars).freeze
     STRING_DELIMITERS = ['"', "'", '“', '”'].freeze
     ESCAPE_MAPPING = {
       't' => "\t",
