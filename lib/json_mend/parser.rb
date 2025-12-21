@@ -222,8 +222,10 @@ module JsonMend
     # Parses the key of an object, including the special logic for merging dangling arrays.
     # Returns [key, was_array_merged_flag]
     def parse_object_key(object)
+      char = peek_char
+
       # First, check for and handle the dangling array merge logic.
-      if try_to_merge_dangling_array(object)
+      if char == '[' && try_to_merge_dangling_array(object)
         return [nil, true, false] # Signal that an array was merged.
       end
 
@@ -231,7 +233,7 @@ module JsonMend
       @context.push(:object_key)
       is_bracketed = false
 
-      if peek_char == '['
+      if char == '['
         @scanner.getch # Consume '['
         arr = parse_array
         key = arr.first.to_s
@@ -509,6 +511,16 @@ module JsonMend
       unmatched_delimiter = false
       # --- Main Parsing Loop ---
       while !@scanner.eos? && char != rstring_delimiter
+        # Fast-path for unquoted keys (e.g. { key: val })
+        # consumes a chunk of valid identifier characters at once.
+        if missing_quotes && current_context?(:object_key)
+          chunk = @scanner.scan(/[a-zA-Z0-9_$-]+/)
+          if chunk
+            string_parts << chunk
+            char = peek_char
+          end
+        end
+
         break if context_termination_reached?(
           char:,
           missing_quotes:
@@ -979,7 +991,8 @@ module JsonMend
 
       # Handle cases where the number ends with an invalid character.
       if !scanned_str.empty? && INVALID_NUMBER_TRAILERS.include?(scanned_str[-1])
-        # Do not rewind scanner, simply discard the invalid trailing char (garbage)
+        # Rewind scanner for the invalid char so it can be handled by the main loop (e.g. as a separator)
+        @scanner.pos -= 1
         scanned_str = scanned_str[0...-1]
       # Handle cases where what looked like a number is actually a string.
       # e.g. "123-abc"
@@ -1170,16 +1183,29 @@ module JsonMend
 
     # Peeks the next character without advancing the scanner
     def peek_char(offset = 0)
-      return @scanner.check(/./m) if offset.zero?
+      # Handle the common 0-offset case
+      if offset.zero?
+        # peek(1) returns the next BYTE, not character
+        byte_str = @scanner.peek(1)
+        return nil if byte_str.empty?
 
+        # Fast path: If it's a standard ASCII char (0-127), return it directly.
+        # This avoids the regex overhead for standard JSON characters ({, [, ", etc).
+        return byte_str if byte_str.getbyte(0) < 128
+
+        # Slow path: If it's a multibyte char (e.g. “), use regex to match the full character.
+        return @scanner.check(/./m)
+      end
+
+      # For offsets > 0, we must scan to skip correctly (as characters can be variable width)
       saved_pos = @scanner.pos
-      c = nil
+      res = nil
       (offset + 1).times do
-        c = @scanner.getch
-        break if c.nil?
+        res = @scanner.getch
+        break if res.nil?
       end
       @scanner.pos = saved_pos
-      c
+      res
     end
 
     def current_context?(value)
