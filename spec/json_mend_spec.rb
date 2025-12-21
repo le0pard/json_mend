@@ -1204,6 +1204,123 @@ RSpec.describe JsonMend do
       end
     end
 
+    context 'when fast-path for unquoted keys' do
+      [
+        {
+          input: '{ simple: "val" }',
+          expected_output: JSON.dump({ 'simple' => 'val' }),
+          desc: 'simple alphabetic unquoted key'
+        },
+        {
+          input: '{ my_var_name: "val" }',
+          expected_output: JSON.dump({ 'my_var_name' => 'val' }),
+          desc: 'underscored identifier'
+        },
+        {
+          input: '{ $special-var_1: "val" }',
+          expected_output: JSON.dump({ '$special-var_1' => 'val' }),
+          desc: 'special characters ($, -) allowed in fast-path regex'
+        },
+        {
+          input: '{ key1: "v1", key2: "v2", key3: "v3" }',
+          expected_output: JSON.dump({ 'key1' => 'v1', 'key2' => 'v2', 'key3' => 'v3' }),
+          desc: 'sequence of fast-path keys'
+        },
+        {
+          input: '{veryLongVariableNameThatShouldBeScannedInOneGo: true}',
+          expected_output: JSON.dump({ 'veryLongVariableNameThatShouldBeScannedInOneGo' => true }),
+          desc: 'long key triggering chunk scan'
+        },
+        {
+          input: '{ key:val }',
+          expected_output: JSON.dump({ 'key' => 'val' }),
+          desc: 'unquoted key and unquoted value'
+        }
+      ].each do |tc|
+        it "correctly parses #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end
+      end
+    end
+
+    context 'when parse_number optimization and rewind logic' do
+      [
+        {
+          input: '{"a":1,"b":2}',
+          expected_output: JSON.dump({ 'a' => 1, 'b' => 2 }),
+          desc: 'compact JSON with comma immediately following number'
+        },
+        {
+          input: '{"a":123,"b":456}',
+          expected_output: JSON.dump({ 'a' => 123, 'b' => 456 }),
+          desc: 'compact JSON with multi-digit numbers'
+        },
+        {
+          input: '{"float":1.5,"int":1}',
+          expected_output: JSON.dump({ 'float' => 1.5, 'int' => 1 }),
+          desc: 'compact JSON with mixed number types'
+        },
+        {
+          input: '[1,2,3,4]',
+          expected_output: JSON.dump([1, 2, 3, 4]),
+          desc: 'compact array with numbers'
+        },
+        {
+          input: '{"a": 1, "b": 2}',
+          expected_output: JSON.dump({ 'a' => 1, 'b' => 2 }),
+          desc: 'standard spacing (boundary check)'
+        },
+        {
+          input: '{"key": 1e5,}',
+          expected_output: JSON.dump({ 'key' => 100_000.0 }),
+          desc: 'scientific notation followed by comma'
+        },
+        {
+          input: '{"key": 123-}',
+          expected_output: JSON.dump({ 'key' => 123 }),
+          desc: 'number with invalid trailer needing strip and rewind'
+        }
+      ].each do |tc|
+        it "correctly handles #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end
+      end
+    end
+
+    context 'when peek_char unicode stability' do
+      [
+        {
+          input: '{"ascii": 1, "uni\u00f6": 2}',
+          expected_output: JSON.dump({ 'ascii' => 1, 'uniö' => 2 }),
+          desc: 'mixed ASCII and Unicode escape'
+        },
+        {
+          input: '{"👍": "thumbs_up"}',
+          expected_output: JSON.dump({ '👍' => 'thumbs_up' }),
+          desc: 'multibyte emoji as key'
+        },
+        {
+          input: '{"“smart”": "quotes"}',
+          expected_output: JSON.dump({ '“smart”' => 'quotes' }),
+          desc: 'multibyte smart quotes as key'
+        },
+        {
+          input: '{"key": "value with — dash"}',
+          expected_output: JSON.dump({ 'key' => 'value with — dash' }),
+          desc: 'multibyte char in value'
+        },
+        {
+          input: '{"Український": "text"}',
+          expected_output: JSON.dump({ 'Український' => 'text' }),
+          desc: 'Cyrillic characters'
+        }
+      ].each do |tc|
+        it "correctly parses #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end
+      end
+    end
+
     context 'with valid JSON (direct parser usage)' do
       [
         {

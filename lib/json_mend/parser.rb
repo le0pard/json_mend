@@ -357,7 +357,7 @@ module JsonMend
       char = prepare_string_parsing
 
       # A valid string can only start with a valid quote or, in our case, with a literal
-      while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char.match?(/[\p{L}0-9]/)
+      while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char.match?(/[\p{L}0-9$_-]/)
         return '' if TERMINATORS_STRING_GUESSED.include?(char)
 
         @scanner.getch
@@ -436,7 +436,7 @@ module JsonMend
       when '“'
         lstring_delimiter = '“'
         rstring_delimiter = '”'
-      when /[\p{L}0-9]/
+      when /[\p{L}0-9$_-]/
         # Could be a boolean/null, but not if it's an object key.
         if BOOLEAN_OR_NULL_CHARS.include?(char.downcase) && !current_context?(:object_key)
           # parse_literal is non-destructive if it fails to match.
@@ -512,12 +512,13 @@ module JsonMend
       # --- Main Parsing Loop ---
       while !@scanner.eos? && char != rstring_delimiter
         # Fast-path for unquoted keys (e.g. { key: val })
-        # consumes a chunk of valid identifier characters at once.
+        # consumes a chunk of valid identifier characters at once
         if missing_quotes && current_context?(:object_key)
           chunk = @scanner.scan(/[a-zA-Z0-9_$-]+/)
           if chunk
             string_parts << chunk
             char = peek_char
+            next
           end
         end
 
@@ -991,8 +992,7 @@ module JsonMend
 
       # Handle cases where the number ends with an invalid character.
       if !scanned_str.empty? && INVALID_NUMBER_TRAILERS.include?(scanned_str[-1])
-        # Rewind scanner for the invalid char so it can be handled by the main loop (e.g. as a separator)
-        @scanner.pos -= 1
+        # Do not rewind scanner, simply discard the invalid trailing char (garbage)
         scanned_str = scanned_str[0...-1]
       # Handle cases where what looked like a number is actually a string.
       # e.g. "123-abc"
@@ -1218,7 +1218,7 @@ module JsonMend
 
     # Checks if the character signifies the start of a string or literal
     def string_start?(char)
-      STRING_DELIMITERS.include?(char) || char&.match?(/\p{L}/)
+      STRING_DELIMITERS.include?(char) || char&.match?(/[\p{L}$_]/)
     end
 
     # Checks if the character signifies the start of a number
