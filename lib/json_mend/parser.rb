@@ -667,9 +667,9 @@ module JsonMend
         return [false, false] if (1..i).all? { |j| peek_char(j).to_s.match(/\s/) }
 
         if current_context?(:object_value)
-          return check_unmatched_in_object_value(i, lstring_delimiter, rstring_delimiter)
+          return check_unmatched_in_object_value(index: i, lstring_delimiter:, rstring_delimiter:)
         elsif current_context?(:array)
-          return check_unmatched_in_array(i, rstring_delimiter)
+          return check_unmatched_in_array(rstring_delimiter:)
         elsif current_context?(:object_key)
           return [true, false]
         end
@@ -678,34 +678,34 @@ module JsonMend
       [false, false]
     end
 
-    def check_unmatched_in_object_value(i, lstring_delimiter, rstring_delimiter)
-      i = skip_whitespaces_at(start_idx: i + 1)
-      if peek_char(i) == ','
+    def check_unmatched_in_object_value(index:, lstring_delimiter:, rstring_delimiter:)
+      index = skip_whitespaces_at(start_idx: index + 1)
+      if peek_char(index) == ','
         # So we found a comma, this could be a case of a single quote like "va"lue",
         # Search if it's followed by another key, starting with the first delimeter
-        i = skip_to_character(lstring_delimiter, start_idx: i + 1)
-        i += 1
-        i = skip_to_character(rstring_delimiter, start_idx: i + 1)
-        i += 1
-        i = skip_whitespaces_at(start_idx: i)
-        next_c = peek_char(i)
+        index = skip_to_character(lstring_delimiter, start_idx: index + 1)
+        index += 1
+        index = skip_to_character(rstring_delimiter, start_idx: index + 1)
+        index += 1
+        index = skip_whitespaces_at(start_idx: index)
+        next_c = peek_char(index)
         return [true, false] if next_c == ':'
       end
       # We found a delimiter and we need to check if this is a key
       # so find a rstring_delimiter and a colon after
-      i = skip_to_character(rstring_delimiter, start_idx: i + 1)
-      i += 1
-      next_c = peek_char(i)
+      index = skip_to_character(rstring_delimiter, start_idx: index + 1)
+      index += 1
+      next_c = peek_char(index)
       while next_c && next_c != ':'
         if TERMINATORS_VALUE.include?(next_c) || (
           next_c == rstring_delimiter &&
-          peek_char(i - 1) != '\\'
+          peek_char(index - 1) != '\\'
         )
           break
         end
 
-        i += 1
-        next_c = peek_char(i)
+        index += 1
+        next_c = peek_char(index)
       end
 
       # Only if we fail to find a ':' then we know this is misplaced quote
@@ -714,7 +714,7 @@ module JsonMend
       [false, false]
     end
 
-    def check_unmatched_in_array(_i, rstring_delimiter)
+    def check_unmatched_in_array(rstring_delimiter:)
       # Heuristic: Check if this quote is a closer or internal.
       # 1. Find the NEXT delimiter (quote) index `j`.
       j = 1

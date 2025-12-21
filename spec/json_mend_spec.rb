@@ -1,12 +1,5 @@
 # frozen_string_literal: true
 
-require 'timeout'
-
-# Helper to enforce timeout for these specific tests
-def with_timeout(seconds = 1, &)
-  Timeout.timeout(seconds, &)
-end
-
 RSpec.describe JsonMend do
   it 'has a version number' do
     expect(described_class::VERSION).not_to be_nil
@@ -948,6 +941,31 @@ RSpec.describe JsonMend do
     context 'with edge cases' do
       [
         {
+          input: '1 ""',
+          expected_output: '1',
+          desc: 'multi-json with empty string skipped'
+        },
+        {
+          input: "[1, # comment inside array \n 2]",
+          expected_output: JSON.dump([1, 2]),
+          desc: 'array with hash-style line comment'
+        },
+        {
+          input: '[ "a", "b\"c" ]',
+          expected_output: JSON.dump(['a', 'b"c']),
+          desc: 'array with internal escaped quote logic'
+        },
+        {
+          input: '{"a": "val\'ue"}',
+          expected_output: JSON.dump({ 'a' => "val'ue" }),
+          desc: 'string with escaped single quote'
+        },
+        {
+          input: '{"key:colons": "value"}',
+          expected_output: JSON.dump({ 'key:colons' => 'value' }),
+          desc: 'key containing colon'
+        },
+        {
           input: '[ "key": "value", "key2": "value2" ]',
           expected_output: JSON.dump([{ 'key' => 'value', 'key2' => 'value2' }]),
           desc: 'implicit objects inside array without curly braces'
@@ -1050,35 +1068,6 @@ RSpec.describe JsonMend do
       end
     end
 
-    context 'when provided valid complex standard json' do
-      [
-        {
-          input: '{"simple": "string", "number": 123, "bool": true, "nil": null}',
-          expected_output: JSON.dump({ simple: 'string', number: 123, bool: true, nil: nil })
-        },
-        {
-          input: '{"nested": {"array": [1, 2, {"deep": "obj"}]}}',
-          expected_output: JSON.dump({ nested: { array: [1, 2, { deep: 'obj' }] } })
-        },
-        {
-          input: '{"unicode": "こんにちは", "emoji": "👍"}',
-          expected_output: JSON.dump({ unicode: 'こんにちは', emoji: '👍' })
-        },
-        {
-          input: '{"escapes":"\" \\\\ / \\b \\f \\n \\r \\t"}',
-          expected_output: JSON.dump({ escapes: "\" \\ / \b \f \n \r \t" })
-        },
-        {
-          input: '{"empty_obj": {}, "empty_arr": []}',
-          expected_output: JSON.dump({ empty_obj: {}, empty_arr: [] })
-        }
-      ].each do |test_case|
-        it "preserves valid json: #{test_case[:input]}" do
-          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
-        end
-      end
-    end
-
     context 'when provided ambiguous number formats' do
       [
         {
@@ -1169,6 +1158,47 @@ RSpec.describe JsonMend do
         }
       ].each do |test_case|
         it "robustly handles garbage: #{test_case[:input]}" do
+          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
+
+    context 'with valid JSON (direct parser usage)' do
+      [
+        {
+          input: '{"a": 1}',
+          expected_output: JSON.dump({ 'a' => 1 })
+        },
+        {
+          input: '[1, 2, 3]',
+          expected_output: JSON.dump([1, 2, 3])
+        },
+        {
+          input: '{"a": [1, 2], "b": {"c": 3}}',
+          expected_output: JSON.dump({ 'a' => [1, 2], 'b' => { 'c' => 3 } })
+        },
+        {
+          input: '{"simple": "string", "number": 123, "bool": true, "nil": null}',
+          expected_output: JSON.dump({ simple: 'string', number: 123, bool: true, nil: nil })
+        },
+        {
+          input: '{"nested": {"array": [1, 2, {"deep": "obj"}]}}',
+          expected_output: JSON.dump({ nested: { array: [1, 2, { deep: 'obj' }] } })
+        },
+        {
+          input: '{"unicode": "こんにちは", "emoji": "👍"}',
+          expected_output: JSON.dump({ unicode: 'こんにちは', emoji: '👍' })
+        },
+        {
+          input: '{"escapes":"\" \\\\ / \\b \\f \\n \\r \\t"}',
+          expected_output: JSON.dump({ escapes: "\" \\ / \b \f \n \r \t" })
+        },
+        {
+          input: '{"empty_obj": {}, "empty_arr": []}',
+          expected_output: JSON.dump({ empty_obj: {}, empty_arr: [] })
+        }
+      ].each do |test_case|
+        it "parses valid JSON #{test_case[:input]}" do
           expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
         end
       end
