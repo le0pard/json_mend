@@ -82,7 +82,7 @@ TEST_CASES = {
   },
   deep_nesting: {
     label: 'Deeply Nested (Stack Test)',
-    input: '{"a":' * 50 + '1' + '}' * 50
+    input: "#{'{"a":' * 50}1#{'}' * 50}"
   },
   unbalanced: {
     label: 'Truncated / Unbalanced',
@@ -94,7 +94,7 @@ TEST_CASES = {
   },
   large_array: {
     label: 'Large Single Array (Throughput)',
-    input: '[' + (1..1000).map { |i| %({"id": #{i}, "val": "item_#{i}"}) }.join(',') + ']'
+    input: "[#{(1..1000).map { |i| %({"id": #{i}, "val": "item_#{i}"}) }.join(',')}]"
   },
   concatenated_complex: {
     label: 'Concatenated + Broken (LLM Stream)',
