@@ -1042,18 +1042,25 @@ module JsonMend
 
       # Check for a line comment `//...` or `#...`
       elsif @scanner.scan(%r{//|#})
-        # Determine valid line comment termination characters based on context.
-        termination_chars = ["\n", "\r"]
-        termination_chars << ']' if context_contain?(:array)
-        termination_chars << '}' if context_contain?(:object_value)
-        termination_chars << ':' if context_contain?(:object_key)
+        in_array = context_contain?(:array)
+        in_object = context_contain?(:object_value)
 
-        # Create a regex that will scan until it hits one of the terminators.
-        # The terminators are positive lookaheads, so they aren't consumed by the scan.
-        terminator_regex = Regexp.new("(?=#{termination_chars.map { |c| Regexp.escape(c) }.join('|')})")
-
-        # Scan until the end of the comment.
-        @scanner.scan_until(terminator_regex)
+        if context_contain?(:object_key)
+          # If parsing a key, we must stop at ':' and structural closers
+          @scanner.scan_until(/(?=[\n\r:}\]])/)
+        elsif in_array && in_object
+          # Nested ambiguity, stop at any closer
+          @scanner.scan_until(/(?=[\n\r}\]])/)
+        elsif in_array
+          # Inside array, stop at ']'
+          @scanner.scan_until(/(?=[\n\r\]])/)
+        elsif in_object
+          # Inside object value, stop at '}'
+          @scanner.scan_until(/(?=[\n\r}])/)
+        else
+          # Top level or neutral, stop at newline
+          @scanner.scan_until(/(?=[\n\r])/)
+        end
       else
         # The character at the current position (likely '/') is not the start of a
         # valid comment. To prevent an infinite loop in the calling parser, we must
