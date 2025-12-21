@@ -715,37 +715,52 @@ module JsonMend
     end
 
     def check_unmatched_in_array(rstring_delimiter:)
-      # Heuristic: Check if this quote is a closer or internal.
-      # 1. Find the NEXT delimiter (quote) index `j`.
-      j = 1
+      saved_pos = @scanner.pos
+      @scanner.getch # Skip the current char (the potential closer)
+
       found_next = false
-      while (c = peek_char(j))
-        if c == rstring_delimiter
-          # Check if escaped (count preceding backslashes)
-          bk = 1
-          slashes = 0
-          while j - bk >= 0 && peek_char(j - bk) == '\\'
-            slashes += 1
-            bk += 1
-          end
-          if slashes.even?
-            found_next = true
-            break
-          end
-        end
+      j = 1
+
+      # Scan forward linearly
+      while (c = @scanner.getch)
         j += 1
+        next if c != rstring_delimiter
+
+        # Check if escaped (count preceding backslashes)
+        # We need to look behind from the current scanner position
+        bk = 1
+        slashes = 0
+        # Look back in the string buffer directly for speed
+        while (char_code = @scanner.string.getbyte(@scanner.pos - 1 - bk)) && char_code == 92 # 92 is backslash
+          slashes += 1
+          bk += 1
+        end
+
+        if slashes.even?
+          found_next = true
+          break
+        end
       end
 
-      # 2. Check conditions to STOP (treat as closing quote):
-      #    a) Strictly whitespace between quotes: ["a" "b"]
-      is_whitespace = (1...j).all? { |k| peek_char(k).match?(/\s/) }
+      # Reset position immediately after scanning
+      @scanner.pos = saved_pos
 
-      #    b) Next quote is followed by a separator: ["val1" val2",]
+      # Check conditions to STOP (treat as closing quote):
+      # a) Strictly whitespace between quotes
+      # We can check this by examining the substring we just scanned
+      substring_between = @scanner.string.byteslice(saved_pos + 1, j - 2)
+      is_whitespace = substring_between&.match?(/\A\s*\z/)
+
+      # b) Next quote is followed by a separator
       is_next_closer = false
       if found_next
-        k = j + 1
-        k += 1 while peek_char(k)&.match?(/\s/) # skip whitespaces
-        is_next_closer = TERMINATORS_VALUE.include?(peek_char(k))
+        # We need to peek ahead from where we found the next quote.
+        # Since we reset the scanner, we can use peek_char with the calculated offset `j`
+        # OR better, temporarily move scanner to `saved_pos + j`
+        @scanner.pos = saved_pos + j
+        @scanner.skip(/\s+/)
+        is_next_closer = TERMINATORS_VALUE.include?(@scanner.check(/./))
+        @scanner.pos = saved_pos
       end
 
       return [true, true] unless is_whitespace || is_next_closer
@@ -1053,7 +1068,13 @@ module JsonMend
     # It quickly iterates to find a character, handling escaped characters, and
     # returns the index (offset) from the scanner
     def skip_to_character(characters, start_idx: 0)
-      pattern = characters.is_a?(Array) ? Regexp.union(characters) : characters
+      pattern = if characters.is_a?(Regexp)
+                  characters
+                else
+                  # Escape if it's a string, join if it's an array
+                  chars = Array(characters).map { |c| Regexp.escape(c.to_s) }
+                  Regexp.new(chars.join('|'))
+                end
 
       saved_pos = @scanner.pos
       # Skip start_idx
