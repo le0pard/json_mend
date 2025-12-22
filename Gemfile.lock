@@ -72,7 +72,7 @@ PLATFORMS
 DEPENDENCIES
   json_mend!
   rake (~> 13)
-  rbs
+  rbs (~> 3)
   rspec (~> 3)
   rubocop (~> 1.82)
   rubocop-performance (~> 1.26)
