@@ -38,6 +38,9 @@ Style/ArgumentsForwarding:
 Style/SymbolArray:
   EnforcedStyle: percent
 
+RSpec/NestedGroups:
+  Max: 4
+
 Layout/LineLength:
   Max: 120
   AllowedPatterns: ['^ *# '] # allow longer comments

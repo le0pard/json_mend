@@ -16,7 +16,11 @@ module JsonMend
     def repair(json_string, return_objects: false)
       # First, attempt to parse the string with the standard library.
       repaired_json = begin
-        JSON.parse(json_string)
+        JSON.parse(
+          json_string,
+          allow_trailing_comma: true,
+          allow_control_characters: true
+        )
       rescue JSON::ParserError
         parser = Parser.new(json_string)
         parser.parse
