@@ -6,7 +6,7 @@ RSpec.describe JsonMend::Parser do
 
     let(:parser) { described_class.new(input) }
 
-    # Requirement: Allow // and /**/ comments
+    # Requirement: Allow // and /**/ comments (covered by JSON.parse by default)
     context 'with comments' do
       context 'with single-line // comments' do
         let(:input) do
@@ -41,7 +41,7 @@ RSpec.describe JsonMend::Parser do
       end
     end
 
-    # Requirement: Allow unescaped newlines
+    # Requirement: Allow unescaped newlines (covered by JSON.parse allow_control_characters: true)
     context 'with unescaped control characters' do
       context 'with literal newlines' do
         let(:input) do
@@ -65,7 +65,7 @@ RSpec.describe JsonMend::Parser do
       end
     end
 
-    # Requirement: Allow trailing commas
+    # Requirement: Allow trailing commas (covered by JSON.parse allow_trailing_comma: true)
     context 'with trailing commas' do
       context 'when in objects' do
         let(:input) do
