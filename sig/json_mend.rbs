@@ -1,7 +1,7 @@
 module JsonMend
   VERSION: String
 
-  type _JSONValue = String | Integer | Float | bool | nil | Array[_JSONValue] | Hash[String, _JSONValue]
+  type json_value = String | Integer | Float | bool | nil | Array[json_value] | Hash[String, json_value]
 
-  def self.repair: (String, ?return_objects: bool) -> String | _JSONValue | nil
+  def self.repair: (String, ?return_objects: bool) -> (String | json_value | nil)
 end
