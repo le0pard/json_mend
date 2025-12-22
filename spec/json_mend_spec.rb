@@ -47,6 +47,38 @@ RSpec.describe JsonMend do
         {
           input: '{"key": "value\\nvalue"}',
           expected_output: JSON.dump({ key: "value\nvalue" })
+        },
+        {
+          input: '{"a": 1}',
+          expected_output: JSON.dump({ 'a' => 1 })
+        },
+        {
+          input: '[1, 2, 3]',
+          expected_output: JSON.dump([1, 2, 3])
+        },
+        {
+          input: '{"a": [1, 2], "b": {"c": 3}}',
+          expected_output: JSON.dump({ 'a' => [1, 2], 'b' => { 'c' => 3 } })
+        },
+        {
+          input: '{"simple": "string", "number": 123, "bool": true, "nil": null}',
+          expected_output: JSON.dump({ simple: 'string', number: 123, bool: true, nil: nil })
+        },
+        {
+          input: '{"nested": {"array": [1, 2, {"deep": "obj"}]}}',
+          expected_output: JSON.dump({ nested: { array: [1, 2, { deep: 'obj' }] } })
+        },
+        {
+          input: '{"unicode": "こんにちは", "emoji": "👍"}',
+          expected_output: JSON.dump({ unicode: 'こんにちは', emoji: '👍' })
+        },
+        {
+          input: '{"escapes":"\" \\\\ / \\b \\f \\n \\r \\t"}',
+          expected_output: JSON.dump({ escapes: "\" \\ / \b \f \n \r \t" })
+        },
+        {
+          input: '{"empty_obj": {}, "empty_arr": []}',
+          expected_output: JSON.dump({ empty_obj: {}, empty_arr: [] })
         }
       ].each do |test_case|
         it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do
@@ -1310,54 +1342,13 @@ RSpec.describe JsonMend do
           desc: 'multibyte char in value'
         },
         {
-          input: '{"Український": "text"}',
-          expected_output: JSON.dump({ 'Український' => 'text' }),
+          input: '{"Українська": "мова👍"}',
+          expected_output: JSON.dump({ 'Українська' => 'мова👍' }),
           desc: 'Cyrillic characters'
         }
       ].each do |tc|
         it "correctly parses #{tc[:desc]}" do
           expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
-        end
-      end
-    end
-
-    context 'with valid JSON (direct parser usage)' do
-      [
-        {
-          input: '{"a": 1}',
-          expected_output: JSON.dump({ 'a' => 1 })
-        },
-        {
-          input: '[1, 2, 3]',
-          expected_output: JSON.dump([1, 2, 3])
-        },
-        {
-          input: '{"a": [1, 2], "b": {"c": 3}}',
-          expected_output: JSON.dump({ 'a' => [1, 2], 'b' => { 'c' => 3 } })
-        },
-        {
-          input: '{"simple": "string", "number": 123, "bool": true, "nil": null}',
-          expected_output: JSON.dump({ simple: 'string', number: 123, bool: true, nil: nil })
-        },
-        {
-          input: '{"nested": {"array": [1, 2, {"deep": "obj"}]}}',
-          expected_output: JSON.dump({ nested: { array: [1, 2, { deep: 'obj' }] } })
-        },
-        {
-          input: '{"unicode": "こんにちは", "emoji": "👍"}',
-          expected_output: JSON.dump({ unicode: 'こんにちは', emoji: '👍' })
-        },
-        {
-          input: '{"escapes":"\" \\\\ / \\b \\f \\n \\r \\t"}',
-          expected_output: JSON.dump({ escapes: "\" \\ / \b \f \n \r \t" })
-        },
-        {
-          input: '{"empty_obj": {}, "empty_arr": []}',
-          expected_output: JSON.dump({ empty_obj: {}, empty_arr: [] })
-        }
-      ].each do |test_case|
-        it "parses valid JSON #{test_case[:input]}" do
-          expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
         end
       end
     end
