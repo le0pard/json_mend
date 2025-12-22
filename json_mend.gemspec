@@ -7,6 +7,7 @@ Gem::Specification.new do |spec|
   spec.version = JsonMend::VERSION
   spec.authors = ['Oleksii Vasyliev']
   spec.email = ['leopard.not.a@gmail.com']
+  spec.license = 'MIT'
 
   spec.summary = 'Repair broken JSON'
   spec.description = [
@@ -20,6 +21,8 @@ Gem::Specification.new do |spec|
   spec.metadata['homepage_uri'] = spec.homepage
   spec.metadata['source_code_uri'] = 'https://github.com/le0pard/json_mend'
   spec.metadata['changelog_uri'] = 'https://github.com/le0pard/json_mend/releases'
+  spec.metadata['bug_tracker_uri'] = 'https://github.com/le0pard/json_mend/issues'
+  spec.metadata['documentation_uri'] = 'https://github.com/le0pard/json_mend/blob/main/README.md'
   spec.metadata['rubygems_mfa_required'] = 'true'
 
   # Specify which files should be added to the gem when it is released.

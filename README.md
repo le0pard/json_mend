@@ -43,6 +43,14 @@ require 'json_mend'
 broken_json = '{"name": "John", "age": 30, city: "New York"'
 JsonMend.repair(broken_json)
 # => '{"name":"John","age":30,"city":"New York"}'
+
+bad_json = 'Here is the data: ```json {"id": 1} ``` check it out'
+JsonMend.repair(bad_json)
+# => '{"id":1}'
+
+bad_json = '{"part": 1} {"part": 2}'
+JsonMend.repair(bad_json)
+# => '{"part":2}'
 ```
 
 ## Return Ruby Objects
