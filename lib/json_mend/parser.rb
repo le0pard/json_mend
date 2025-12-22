@@ -173,7 +173,7 @@ module JsonMend
     # Attempts to parse a single key-value pair.
     # Returns [key, value] on success, or [nil, nil] if parsing should stop.
     def parse_object_pair(object)
-      # --- 1. Parse the Key ---
+      # Parse the Key
       # This step includes the complex logic for merging dangling arrays.
       pos_before_key = @scanner.pos
       key, was_array_merged, is_bracketed = parse_object_key(object)
@@ -192,7 +192,7 @@ module JsonMend
       # If we get an empty key and the next character is a closing brace, we're done.
       return [nil, nil, false] if key.empty? && (peek_char.nil? || peek_char == '}' || @scanner.pos == pos_before_key)
 
-      # --- 2. Handle Duplicate Keys (Safer Method) ---
+      # Handle Duplicate Keys (Safer Method)
       # This is a critical repair for lists of objects missing a comma separator.
       if object.key?(key)
         # Instead of rewriting the string, we safely rewind the scanner to the
@@ -203,11 +203,11 @@ module JsonMend
         return [nil, nil, false] # Signal to stop parsing this object.
       end
 
-      # --- 3. Parse the Separator (:) ---
+      # Parse the Separator (:)
       skip_whitespaces
       colon_found = @scanner.skip(/:/) # Leniently skip the colon if it exists.
 
-      # --- 4. Parse the Value ---
+      # Parse the Value
       value = parse_object_value(colon_found: colon_found || is_bracketed)
 
       if value == :inferred_true
