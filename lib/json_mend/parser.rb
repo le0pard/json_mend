@@ -1088,13 +1088,8 @@ module JsonMend
     # It quickly iterates to find a character, handling escaped characters, and
     # returns the index (offset) from the scanner
     def skip_to_character(characters, start_idx: 0)
-      pattern = if characters.is_a?(Regexp)
-                  characters
-                else
-                  # Escape if it's a string, join if it's an array
-                  chars = Array(characters).map { |c| Regexp.escape(c.to_s) }
-                  Regexp.new(chars.join('|'))
-                end
+      chars = Array(characters).map { |c| Regexp.escape(c.to_s) }
+      pattern = Regexp.new(chars.join('|'))
 
       saved_pos = @scanner.pos
       # Skip start_idx
