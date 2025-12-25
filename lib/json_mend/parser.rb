@@ -10,6 +10,14 @@ module JsonMend
     COMMENT_DELIMETERS = ['#', '/'].freeze
     NUMBER_CHARS = Set.new('0123456789-.eE/,_'.chars).freeze
     STRING_DELIMITERS = ['"', "'", '“', '”'].freeze
+    SKIP_CHARS_REGEX_CACHE = {
+      '"' => /"/,
+      "'" => /'/,
+      '“' => /“/,
+      '”' => /”/,
+      ':' => /:/,
+      '}' => /\}/
+    }.freeze
     ESCAPE_MAPPING = {
       't' => "\t",
       'n' => "\n",
@@ -1085,11 +1093,14 @@ module JsonMend
     end
 
     # This function is a non-destructive lookahead.
-    # It quickly iterates to find a character, handling escaped characters, and
+    # It quickly iterates to find a character, handling escaped character, and
     # returns the index (offset) from the scanner
     def skip_to_character(characters, start_idx: 0)
-      chars = Array(characters).map { |c| Regexp.escape(c.to_s) }
-      pattern = Regexp.new(chars.join('|'))
+      pattern = SKIP_CHARS_REGEX_CACHE.fetch(characters, nil)
+      if pattern.nil?
+        chars = Array(characters).map { |c| Regexp.escape(c.to_s) }
+        pattern = Regexp.new(chars.join('|'))
+      end
 
       saved_pos = @scanner.pos
       # Skip start_idx
