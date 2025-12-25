@@ -1093,7 +1093,7 @@ module JsonMend
     end
 
     # This function is a non-destructive lookahead.
-    # It quickly iterates to find a character, handling escaped character, and
+    # It quickly iterates to find a character, handling escaped characters, and
     # returns the index (offset) from the scanner
     def skip_to_character(characters, start_idx: 0)
       pattern = SKIP_CHARS_REGEX_CACHE.fetch(characters, nil)
