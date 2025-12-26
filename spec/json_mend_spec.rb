@@ -158,6 +158,10 @@ RSpec.describe JsonMend do
         {
           input: '{"key": TRUE, "key2": FALSE, "key3": Null}   ',
           expected_output: JSON.dump({ key: true, key2: false, key3: nil })
+        },
+        {
+          input: "json```\n{\"key\": True, \"key2\": False, \"key3\": None} ",
+          expected_output: JSON.dump({ key: true, key2: false, key3: 'None' })
         }
       ].each do |test_case|
         it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do

@@ -8,7 +8,7 @@ Integrating Large Language Models (LLMs) into software workflows often requires 
 
 Standard `JSON.parse` is fragile when facing the chaotic output of an LLM. Common failure modes include:
 
-- **Hallucinated Syntax**: LLMs often include trailing commas, code comments (`//` or `#`), single quotes, or Python-style literals (`True`, `None`) that break standard JSON parsers
+- **Hallucinated Syntax**: LLMs often include trailing commas, code comments (`//` or `#`), single quotes, or Python-style literals (`True`, `False`) that break standard JSON parsers
 - **"Chatty" Wrappers**: Models frequently wrap JSON in Markdown code blocks (`json ...`) or include conversational preambles (`Here is the data you requested: ...`), turning valid data into invalid syntax errors
 - **Truncation**: JSON is verbose. Output limits often cut off the response mid-stream, leaving unclosed brackets and braces
 
