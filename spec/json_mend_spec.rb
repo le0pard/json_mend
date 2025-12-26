@@ -256,7 +256,9 @@ RSpec.describe JsonMend do
         }
       ].each do |test_case|
         it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do
-          expect(described_class.repair(test_case[:input], return_objects: true)).to eq(test_case[:expected_output])
+          expect(
+            described_class.repair(test_case[:input], return_objects: true)
+          ).to eq(test_case[:expected_output])
         end
       end
     end
