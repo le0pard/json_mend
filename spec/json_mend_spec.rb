@@ -249,6 +249,10 @@ RSpec.describe JsonMend do
         {
           input: '1.2',
           expected_output: 1.2
+        },
+        {
+          input: '1.2258e2',
+          expected_output: 122.58
         }
       ].each do |test_case|
         it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do
