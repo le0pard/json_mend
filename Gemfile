@@ -5,6 +5,7 @@ source 'https://rubygems.org'
 # Specify your gem's dependencies in json_mend.gemspec
 gemspec
 
+gem 'irb', '~> 1'
 gem 'rake', '~> 13'
 gem 'rbs', '~> 3', require: false
 gem 'rspec', '~> 3'
