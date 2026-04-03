@@ -72,8 +72,11 @@ module JsonMend
             # Ignore strings that look like closing braces garbage (e.g. "}", " ] ")
             next if new_json.is_a?(String) && new_json.strip.match?(/^[}\]]+$/)
 
-            json.pop if both_hash?(json.last, new_json)
-            json << new_json
+            if both_hash?(json.last, new_json)
+              deep_merge_hashes!(json.last, new_json)
+            else
+              json << new_json
+            end
           end
         end
 
@@ -92,6 +95,24 @@ module JsonMend
       yield
     ensure
       @depth -= 1
+    end
+
+    def deep_merge_hashes!(target, source)
+      source.each do |key, new_val|
+        if target.key?(key)
+          old_val = target[key]
+          if old_val.is_a?(Hash) && new_val.is_a?(Hash)
+            deep_merge_hashes!(old_val, new_val)
+          elsif old_val.is_a?(Array) && new_val.is_a?(Array)
+            target[key] = old_val + new_val
+          else
+            target[key] = new_val
+          end
+        else
+          target[key] = new_val
+        end
+      end
+      target
     end
 
     def parse_json
@@ -1066,7 +1087,18 @@ module JsonMend
         if scanned_str.end_with?('.')
           Float(scanned_str[0...-1])
         elsif scanned_str.include?(',')
-          Float(scanned_str.tr(',', '.'))
+          # Check if commas are being used as thousands separators (e.g., 1,234 or 1,234,567.89)
+          if scanned_str.count(',') > 1 || scanned_str.match?(/,\d{3}(?:\.\d+)?$/)
+            cleaned = scanned_str.delete(',')
+            if cleaned.match?(/[.eE]/)
+              Float(cleaned)
+            else
+              Integer(cleaned, 10)
+            end
+          else
+            # Treat single comma as a decimal point (European style, e.g., 1,5 -> 1.5)
+            Float(scanned_str.tr(',', '.'))
+          end
         elsif scanned_str.match?(/[.eE]/)
           Float(scanned_str)
         else

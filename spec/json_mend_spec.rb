@@ -789,12 +789,19 @@ RSpec.describe JsonMend do
           input: '{"range": 10-20}',
           expected_output: JSON.dump({ 'range' => '10-20' })
         },
-        # Multiple objects of the same type: Only the last one is kept
         {
           input: '{"a": 1} {"b": 2}',
-          expected_output: JSON.dump({ 'b' => 2 })
+          expected_output: JSON.dump({ 'a' => 1, 'b' => 2 })
         },
-        # Multiple objects of different types: All are kept
+        {
+          input: '{"a": {"x": 1}} {"a": {"y": 2}, "b": 2}',
+          expected_output: JSON.dump({ 'a' => { 'x' => 1, 'y' => 2 }, 'b' => 2 })
+        },
+        {
+          input: '{"arr": [1]} {"arr": [2, 3]}',
+          expected_output: JSON.dump({ 'arr' => [1, 2, 3] })
+        },
+        # Multiple objects of different types: All are kept, hashes are only merged if consecutive
         {
           input: '{"a": 1} [1, 2] {"b": 2}',
           expected_output: JSON.dump([{ 'a' => 1 }, [1, 2], { 'b' => 2 }])
@@ -1029,7 +1036,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"a": 1} } ] garbage_text {"b": 2}',
-          expected_output: JSON.dump({ 'b' => 2 }),
+          expected_output: JSON.dump({ 'a' => 1, 'b' => 2 }),
           desc: 'garbage and closing brackets between objects'
         },
         {
@@ -1114,11 +1121,19 @@ RSpec.describe JsonMend do
       [
         {
           input: '{"thousands": 1,234}',
-          expected_output: JSON.dump({ thousands: 1.234 })
+          expected_output: JSON.dump({ thousands: 1234 })
         },
         {
           input: '{"multi_comma": 1,234,567}',
-          expected_output: JSON.dump({ multi_comma: '1,234,567' })
+          expected_output: JSON.dump({ multi_comma: 1_234_567 })
+        },
+        {
+          input: '{"euro_decimal": 1,5}',
+          expected_output: JSON.dump({ euro_decimal: 1.5 })
+        },
+        {
+          input: '{"us_float": 1,234.56}',
+          expected_output: JSON.dump({ us_float: 1234.56 })
         },
         {
           input: '{"trailing_minus": 123-}',
@@ -1248,8 +1263,8 @@ RSpec.describe JsonMend do
         {
           input: '{{ "a": 1 } { "b": 2 }}',
           # Explanation: effectively parses as { "a": 1 }, then { "b": 2 }.
-          # Top level logic keeps the last object.
-          expected_output: JSON.dump({ 'b' => 2 })
+          # Top level logic deep merges consecutive objects.
+          expected_output: JSON.dump({ 'a' => 1, 'b' => 2 })
         },
         {
           input: '[[[[1]]]]',
