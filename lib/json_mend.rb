@@ -16,12 +16,18 @@ module JsonMend
     def repair(json_string, return_objects: false)
       # First, attempt to parse the string with the standard library.
       repaired_json = begin
-        JSON.parse(
+        parsed = JSON.parse(
           json_string,
           allow_trailing_comma: true,
           allow_control_characters: true
         )
-      rescue JSON::ParserError
+
+        # Verify the native parser didn't produce invalid UTF-8 (like unpaired surrogates)
+        # by ensuring it can safely dump its own output.
+        JSON.dump(parsed)
+
+        parsed
+      rescue JSON::ParserError, JSON::GeneratorError
         parser = Parser.new(json_string)
         parser.parse
       end
@@ -29,8 +35,8 @@ module JsonMend
       # Avoids returning `null` for empty results, returns the object directly
       return repaired_json if return_objects
 
-      # For string output, ensure we don't just return the string "null" for an empty input
-      repaired_json.nil? ? '' : JSON.dump(repaired_json)
+      # Always return a valid JSON string. For unparseable input, `nil` dumps to "null".
+      JSON.dump(repaired_json)
     end
   end
 end

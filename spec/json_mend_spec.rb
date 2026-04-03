@@ -207,7 +207,7 @@ RSpec.describe JsonMend do
       [
         {
           input: '/',
-          expected_output: ''
+          expected_output: 'null'
         },
         {
           input: '/* comment */ {"key": "value"}',
@@ -344,15 +344,15 @@ RSpec.describe JsonMend do
         },
         {
           input: "\n",
-          expected_output: ''
+          expected_output: 'null'
         },
         {
           input: ' ',
-          expected_output: ''
+          expected_output: 'null'
         },
         {
           input: 'string',
-          expected_output: ''
+          expected_output: 'null'
         },
         {
           input: 'stringbeforeobject {}',
@@ -466,11 +466,11 @@ RSpec.describe JsonMend do
         },
         {
           input: ' ',
-          expected_output: ''
+          expected_output: 'null'
         },
         {
           input: 'string',
-          expected_output: ''
+          expected_output: 'null'
         },
         {
           input: 'stringbeforeobject {}',
@@ -627,7 +627,7 @@ RSpec.describe JsonMend do
         },
         {
           input: ']',
-          expected_output: ''
+          expected_output: 'null'
         },
         {
           input: '[1, 2, 3,',
@@ -817,7 +817,7 @@ RSpec.describe JsonMend do
           description: 'repeated commas'
         },
         {
-          input: ('[' * 500) + (']' * 500),
+          input: ('[' * 50) + (']' * 50),
           description: 'deeply nested arrays'
         },
         {
@@ -1148,6 +1148,22 @@ RSpec.describe JsonMend do
         {
           input: '{"hex_escape": "\\x41"}',
           expected_output: JSON.dump({ hex_escape: 'A' })
+        },
+        {
+          input: '{"emoji": "\\uD83D\\uDE00"}',
+          expected_output: JSON.dump({ emoji: '😀' })
+        },
+        {
+          input: '{"unpaired_high": "\\uD83D"}',
+          expected_output: JSON.dump({ unpaired_high: "\uFFFD" })
+        },
+        {
+          input: '{"unpaired_low": "\\uDE00"}',
+          expected_output: JSON.dump({ unpaired_low: "\uFFFD" })
+        },
+        {
+          input: '{"broken_pair": "\\uD83D\\u0041"}',
+          expected_output: JSON.dump({ broken_pair: "\uFFFDA" })
         }
       ].each do |test_case|
         it "handles escapes in #{test_case[:input]}" do
@@ -1184,7 +1200,7 @@ RSpec.describe JsonMend do
       [
         {
           input: ']]]]]]',
-          expected_output: ''
+          expected_output: 'null'
         },
         {
           input: '{{{{{{',
@@ -1192,7 +1208,7 @@ RSpec.describe JsonMend do
         },
         {
           input: 'random garbage text',
-          expected_output: ''
+          expected_output: 'null'
         },
         {
           input: '{"key": "value"} random garbage',
@@ -1360,6 +1376,20 @@ RSpec.describe JsonMend do
         it "correctly parses #{tc[:desc]}" do
           expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
         end
+      end
+    end
+
+    context 'when JSON is too deeply nested' do
+      it 'raises JSON::NestingError to prevent SystemStackError on arrays' do
+        expect do
+          described_class.repair(('[' * 200) + (']' * 200))
+        end.to raise_error(JSON::NestingError)
+      end
+
+      it 'raises JSON::NestingError to prevent SystemStackError on objects' do
+        expect do
+          described_class.repair(('{"a":' * 200) + ('}' * 200))
+        end.to raise_error(JSON::NestingError)
       end
     end
   end

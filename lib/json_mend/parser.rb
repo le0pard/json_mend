@@ -6,6 +6,7 @@ require 'strscan'
 module JsonMend
   # The core parser that does the heavy lifting of fixing the JSON
   class Parser
+    MAX_ALLOWED_DEPTH = 100
     COMMENT_DELIMETERS = ['#', '/'].freeze
     NUMBER_CHARS = Set.new('0123456789-.eE/,_'.chars).freeze
     STRING_DELIMITERS = ['"', "'", '“', '”'].freeze
@@ -47,6 +48,7 @@ module JsonMend
     def initialize(json_string)
       @scanner = StringScanner.new(json_string)
       @context = []
+      @depth = 0
     end
 
     # Kicks off the parsing process. This is a direct port of the robust Python logic
@@ -82,6 +84,15 @@ module JsonMend
     end
 
     private
+
+    def with_depth_check
+      @depth += 1
+      raise JSON::NestingError, "nesting of #{@depth} is too deep" if @depth > MAX_ALLOWED_DEPTH
+
+      yield
+    ensure
+      @depth -= 1
+    end
 
     def parse_json
       until @scanner.eos?
@@ -130,51 +141,53 @@ module JsonMend
 
     # Parses a JSON object.
     def parse_object
-      object = {}
+      with_depth_check do
+        object = {}
 
-      loop do
-        skip_whitespaces
+        loop do
+          skip_whitespaces
 
-        # Explicitly consume comments to ensure they don't hide separators (like commas)
-        # or get parsed as part of the next key.
-        if COMMENT_DELIMETERS.include?(peek_char)
-          parse_comment
-          next
+          # Explicitly consume comments to ensure they don't hide separators (like commas)
+          # or get parsed as part of the next key.
+          if COMMENT_DELIMETERS.include?(peek_char)
+            parse_comment
+            next
+          end
+
+          # >> PRIMARY EXIT: End of object or end of string.
+          break if @scanner.eos? || @scanner.scan('}') || peek_char == ']'
+
+          # Leniently consume any leading junk characters (like stray commas or colons)
+          # that might appear before a key.
+          @scanner.skip(/[,\s]+/)
+
+          # --- Delegate to a helper to parse the next Key-Value pair ---
+          key, value, colon_found = parse_object_pair(object)
+          next if SKIPPED_KEYS.include?(key)
+
+          # If the helper returns nil for the key, it signals that we should
+          # stop parsing this object (e.g. a duplicate key was found,
+          # indicating the start of a new object).
+          if key.nil?
+            @scanner.scan('}')
+            break
+          end
+
+          # Assign the parsed pair to our object, avoiding empty keys.
+          # But only if we didn't firmly establish the key with a colon already.
+          skip_whitespaces
+          if peek_char == ':' && !colon_found
+            key = value.to_s
+            @scanner.getch # consume ':'
+            value = parse_object_value
+          end
+
+          # Assign the parsed pair to our object.
+          object[key] = value
         end
 
-        # >> PRIMARY EXIT: End of object or end of string.
-        break if @scanner.eos? || @scanner.scan('}') || peek_char == ']'
-
-        # Leniently consume any leading junk characters (like stray commas or colons)
-        # that might appear before a key.
-        @scanner.skip(/[,\s]+/)
-
-        # --- Delegate to a helper to parse the next Key-Value pair ---
-        key, value, colon_found = parse_object_pair(object)
-        next if SKIPPED_KEYS.include?(key)
-
-        # If the helper returns nil for the key, it signals that we should
-        # stop parsing this object (e.g. a duplicate key was found,
-        # indicating the start of a new object).
-        if key.nil?
-          @scanner.scan('}')
-          break
-        end
-
-        # Assign the parsed pair to our object, avoiding empty keys.
-        # But only if we didn't firmly establish the key with a colon already.
-        skip_whitespaces
-        if peek_char == ':' && !colon_found
-          key = value.to_s
-          @scanner.getch # consume ':'
-          value = parse_object_value
-        end
-
-        # Assign the parsed pair to our object.
-        object[key] = value
+        object
       end
-
-      object
     end
 
     # Attempts to parse a single key-value pair.
@@ -301,60 +314,62 @@ module JsonMend
     # Assumes the opening '[' has already been consumed by the caller.
     # This is a lenient parser designed to handle malformed JSON.
     def parse_array
-      arr = []
-      @context.push(:array)
-      char = peek_char
-      # Stop when you find the closing bracket or an invalid character like '}'
-      while !@scanner.eos? && !TERMINATORS_ARRAY.include?(char)
-        skip_whitespaces
+      with_depth_check do
+        arr = []
+        @context.push(:array)
         char = peek_char
-
-        # Check for comments explicitly inside array to avoid recursion or garbage consumption issues
-        if COMMENT_DELIMETERS.include?(char)
-          parse_comment
+        # Stop when you find the closing bracket or an invalid character like '}'
+        while !@scanner.eos? && !TERMINATORS_ARRAY.include?(char)
+          skip_whitespaces
           char = peek_char
-          next
-        end
 
-        value = ''
-        if STRING_DELIMITERS.include?(char)
-          # Sometimes it can happen that LLMs forget to start an object and then you think it's a string in an array
-          # So we are going to check if this string is followed by a : or not
-          # And either parse the string or parse the object
-          i = 1
-          i = skip_to_character(char, start_idx: i)
-          i = skip_whitespaces_at(start_idx: i + 1)
-          value = (peek_char(i) == ':' ? parse_object : parse_string)
-        else
-          value = parse_json
-        end
+          # Check for comments explicitly inside array to avoid recursion or garbage consumption issues
+          if COMMENT_DELIMETERS.include?(char)
+            parse_comment
+            char = peek_char
+            next
+          end
 
-        # Handle JSON_STOP_TOKEN from parse_json (EOS or consumed terminator)
-        if value == JSON_STOP_TOKEN
-          # Do nothing, just skipped garbage
-        elsif strictly_empty?(value)
-          # Only consume if we didn't just hit a terminator that parse_json successfully respected
-          @scanner.getch unless value.nil? && TERMINATORS_ARRAY.include?(peek_char)
-        elsif value == '...' && @scanner.string.getbyte(@scanner.pos - 1) == 46
-          # just skip if the previous byte was a dot (46)
-        else
-          arr << value
-        end
+          value = ''
+          if STRING_DELIMITERS.include?(char)
+            # Sometimes it can happen that LLMs forget to start an object and then you think it's a string in an array
+            # So we are going to check if this string is followed by a : or not
+            # And either parse the string or parse the object
+            i = 1
+            i = skip_to_character(char, start_idx: i)
+            i = skip_whitespaces_at(start_idx: i + 1)
+            value = (peek_char(i) == ':' ? parse_object : parse_string)
+          else
+            value = parse_json
+          end
 
-        char = peek_char
-        while char && char != ']' && (char.match?(/\s/) || char == ',')
-          @scanner.getch
+          # Handle JSON_STOP_TOKEN from parse_json (EOS or consumed terminator)
+          if value == JSON_STOP_TOKEN
+            # Do nothing, just skipped garbage
+          elsif strictly_empty?(value)
+            # Only consume if we didn't just hit a terminator that parse_json successfully respected
+            @scanner.getch unless value.nil? && TERMINATORS_ARRAY.include?(peek_char)
+          elsif value == '...' && @scanner.string.getbyte(@scanner.pos - 1) == 46
+            # just skip if the previous byte was a dot (46)
+          else
+            arr << value
+          end
+
           char = peek_char
+          while char && char != ']' && (char.match?(/\s/) || char == ',')
+            @scanner.getch
+            char = peek_char
+          end
         end
-      end
 
-      # Handle a potentially missing closing bracket, a common LLM error.
-      unless @scanner.scan(']')
-        @scanner.scan('}') # Consume } if it was the closer
-      end
-      @context.pop
+        # Handle a potentially missing closing bracket, a common LLM error.
+        unless @scanner.scan(']')
+          @scanner.scan('}') # Consume } if it was the closer
+        end
+        @context.pop
 
-      arr
+        arr
+      end
     end
 
     # Parses a JSON string. This is a very lenient parser designed to handle
@@ -909,7 +924,37 @@ module JsonMend
           # Validate valid hex digits
           if hex_parts.length == num_chars && hex_parts.all? { |c| c.match?(/[0-9a-fA-F]/) }
             string_parts.pop
-            string_parts << hex_parts.join.to_i(16).chr('UTF-8')
+            hex_val = hex_parts.join.to_i(16)
+
+            if char == 'u' && hex_val.between?(0xD800, 0xDBFF)
+              # Handle high surrogate pair
+              saved_pos = @scanner.pos
+              if @scanner.scan(/\\u([0-9a-fA-F]{4})/)
+                low_surrogate = @scanner[1].to_i(16)
+                if low_surrogate.between?(0xDC00, 0xDFFF)
+                  # Combine surrogates into a valid UTF-8 character
+                  code_point = 0x10000 + ((hex_val - 0xD800) * 0x400) + (low_surrogate - 0xDC00)
+                  string_parts << code_point.chr('UTF-8')
+                else
+                  # Invalid low surrogate: backtrack and use replacement char
+                  @scanner.pos = saved_pos
+                  string_parts << "\uFFFD"
+                end
+              else
+                # Missing low surrogate
+                string_parts << "\uFFFD"
+              end
+            elsif char == 'u' && hex_val.between?(0xDC00, 0xDFFF)
+              # Unpaired low surrogate
+              string_parts << "\uFFFD"
+            else
+              # Regular code point or hex escape
+              begin
+                string_parts << hex_val.chr('UTF-8')
+              rescue RangeError
+                string_parts << "\uFFFD"
+              end
+            end
 
             # Scanner is already advanced past digits
             char = peek_char
