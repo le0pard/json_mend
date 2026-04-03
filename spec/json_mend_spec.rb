@@ -1109,10 +1109,73 @@ RSpec.describe JsonMend do
           input: '{key-dash: "value", key_underscore: "value", key$dollar: "value"}',
           expected_output: JSON.dump({ 'key-dash' => 'value', 'key_underscore' => 'value', 'key$dollar' => 'value' }),
           desc: 'unquoted keys with special allowed characters'
+        },
+        {
+          input: '{"a": 1} # { "b": 2 }',
+          expected_output: JSON.dump({ 'a' => 1 }),
+          desc: 'EOF line comment bleed without trailing newline'
+        },
+        {
+          input: '{"a": 1} // 12345',
+          expected_output: JSON.dump({ 'a' => 1 }),
+          desc: 'EOF line comment bleed avoiding garbage number parsing'
+        },
+        {
+          input: '["]\\',
+          expected_output: JSON.dump([]),
+          desc: 'prevents negative index wraparound when checking escapes near string start'
         }
       ].each do |test_case|
         it "repairs #{test_case[:desc]}" do
           expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
+
+    context 'when handling truncations at EOF' do
+      [
+        {
+          input: '{"key": "value\\',
+          expected_output: JSON.dump({ 'key' => 'value\\' }),
+          desc: 'trailing backslash escape at EOF'
+        },
+        {
+          input: '/* unclosed block comment',
+          expected_output: 'null',
+          desc: 'unclosed block comment at EOF with no JSON data'
+        },
+        {
+          input: '{"a": 1} /* unclosed trailing block',
+          expected_output: JSON.dump({ 'a' => 1 }),
+          desc: 'unclosed block comment after valid JSON at EOF'
+        }
+      ].each do |tc|
+        it "safely repairs #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end
+      end
+    end
+
+    context 'when handling chatty text and markdown blocks' do
+      [
+        {
+          input: "```\n\n```",
+          expected_output: 'null',
+          desc: 'completely empty markdown code block'
+        },
+        {
+          input: "   \t\n  {\"a\": 1}  \n\t   ",
+          expected_output: JSON.dump({ 'a' => 1 }),
+          desc: 'heavy surrounding whitespace and newlines'
+        },
+        {
+          input: "Sure! Here is the JSON:\n\n[\n  1,\n  2\n]\n\nLet me know if you need anything else",
+          expected_output: JSON.dump([1, 2]),
+          desc: 'chatty text surrounding an array'
+        }
+      ].each do |tc|
+        it "safely repairs #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
         end
       end
     end

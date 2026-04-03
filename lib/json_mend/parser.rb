@@ -787,7 +787,9 @@ module JsonMend
         bk = 1
         slashes = 0
         # Look back in the string buffer directly for speed
-        while (char_code = @scanner.string.getbyte(@scanner.pos - 1 - bk)) && char_code == 92 # 92 is backslash
+        while (@scanner.pos - 1 - bk >= 0) &&
+              (char_code = @scanner.string.getbyte(@scanner.pos - 1 - bk)) &&
+              char_code == 92 # 92 is backslash
           slashes += 1
           bk += 1
         end
@@ -1144,20 +1146,24 @@ module JsonMend
 
         if context_contain?(:object_key)
           # If parsing a key, we must stop at ':' and structural closers
-          @scanner.scan_until(/(?=[\n\r:}\]])/)
+          @scanner.scan_until(/(?=[\n\r:}\]]|\\n|\\r)/) || @scanner.terminate
         elsif in_array && in_object
           # Nested ambiguity, stop at any closer
-          @scanner.scan_until(/(?=[\n\r}\]])/)
+          @scanner.scan_until(/(?=[\n\r}\]]|\\n|\\r)/) || @scanner.terminate
         elsif in_array
           # Inside array, stop at ']'
-          @scanner.scan_until(/(?=[\n\r\]])/)
+          @scanner.scan_until(/(?=[\n\r\]]|\\n|\\r)/) || @scanner.terminate
         elsif in_object
           # Inside object value, stop at '}'
-          @scanner.scan_until(/(?=[\n\r}])/)
+          @scanner.scan_until(/(?=[\n\r}]|\\n|\\r)/) || @scanner.terminate
         else
           # Top level or neutral, stop at newline
-          @scanner.scan_until(/(?=[\n\r])/)
+          @scanner.scan_until(/(?=[\n\r]|\\n|\\r)/) || @scanner.terminate
         end
+
+        # Consume literal escaped newlines so they don't break subsequent parsing.
+        # (Real newlines will be left alone here and consumed normally by skip_whitespaces).
+        @scanner.skip(/\\n|\\r/)
       else
         # The character at the current position (likely '/') is not the start of a
         # valid comment. To prevent an infinite loop in the calling parser, we must
