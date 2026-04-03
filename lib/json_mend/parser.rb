@@ -1065,6 +1065,9 @@ module JsonMend
       scanned_str = @scanner.scan(regex)
       return nil unless scanned_str
 
+      # Save the original length so we can safely roll back if it's completely invalid
+      original_length = scanned_str.bytesize
+
       # Handle cases where the number ends with an invalid character.
       if !scanned_str.empty? && INVALID_NUMBER_TRAILERS.include?(scanned_str[-1])
         # Do not rewind scanner, simply discard the invalid trailing char (garbage)
@@ -1073,8 +1076,14 @@ module JsonMend
       # e.g. "123-abc"
       elsif peek_char&.match?(/\p{L}/)
         # Roll back the entire scan and re-parse as a string.
-        @scanner.pos -= scanned_str.bytesize
+        @scanner.pos -= original_length
         return parse_string
+      end
+
+      # Reject non-numbers (e.g., stray periods "." or dashes "-" from LLM conversational text)
+      unless scanned_str.match?(/\d/)
+        @scanner.pos -= original_length
+        return ''
       end
 
       # Sometimes numbers are followed by a quote, which is garbage

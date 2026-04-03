@@ -1041,7 +1041,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"a": 1} .... {"b": 2}',
-          expected_output: JSON.dump([{ 'a' => 1 }, '....', { 'b' => 2 }]),
+          expected_output: JSON.dump({ 'a' => 1, 'b' => 2 }),
           desc: 'dots/garbage between objects'
         },
         {
@@ -1169,7 +1169,7 @@ RSpec.describe JsonMend do
           desc: 'heavy surrounding whitespace and newlines'
         },
         {
-          input: "Sure! Here is the JSON:\n\n[\n  1,\n  2\n]\n\nLet me know if you need anything else",
+          input: "Sure! Here is the JSON:\n\n[\n  1,\n  2\n]\n\nLet me know if you need anything else.",
           expected_output: JSON.dump([1, 2]),
           desc: 'chatty text surrounding an array'
         }
@@ -1209,6 +1209,50 @@ RSpec.describe JsonMend do
       ].each do |test_case|
         it "repairs number format #{test_case[:input]} to #{test_case[:expected_output]}" do
           expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
+
+    context 'when handling chatty text with stray number-like characters' do
+      [
+        {
+          input: 'Here is the data. {"a": 1} Let me know if you need anything else.',
+          expected_output: JSON.dump({ 'a' => 1 }),
+          desc: 'conversational text with periods'
+        },
+        {
+          input: "- {\"b\": 2}\n- Have a good day!",
+          expected_output: JSON.dump({ 'b' => 2 }),
+          desc: 'conversational text with markdown list dashes'
+        },
+        {
+          input: 'The answer is... [1, 2, 3] ...done.',
+          expected_output: JSON.dump([[1, 2, 3], 'done.']),
+          desc: 'conversational text with ellipses'
+        },
+        {
+          input: '{"valid": true} - wait, there is more. {"also": false}',
+          expected_output: JSON.dump({ 'valid' => true, 'also' => false }),
+          desc: 'multiple objects separated by dashes and text'
+        },
+        {
+          input: 'Just a dash - and a dot .',
+          expected_output: 'null',
+          desc: 'only stray dashes and dots, no valid JSON data at all'
+        },
+        {
+          input: 'Temperature dropped to - degrees. {"temp": -5}',
+          expected_output: JSON.dump({ 'temp' => -5 }),
+          desc: 'stray dash in text vs actual negative number in JSON'
+        },
+        {
+          input: 'Version . is out. [1.5, 2.0]',
+          expected_output: JSON.dump([1.5, 2.0]),
+          desc: 'stray period in text vs actual float in JSON'
+        }
+      ].each do |tc|
+        it "ignores non-numeric stray characters: #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
         end
       end
     end
