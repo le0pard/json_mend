@@ -931,12 +931,12 @@ RSpec.describe JsonMend do
       [
         {
           input: '{"key" "value"}',
-          expected_output: JSON.dump({ 'key" "value' => true }),
+          expected_output: JSON.dump({ 'key' => 'value' }),
           desc: 'missing colon'
         },
         {
           input: '{"key" "value", "key2" 123}',
-          expected_output: JSON.dump({ 'key" "value", "key2' => 123 }),
+          expected_output: JSON.dump({ 'key' => 'value', 'key2' => 123 }),
           desc: 'missing colons in multiple pairs'
         },
         {

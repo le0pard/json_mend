@@ -744,8 +744,8 @@ module JsonMend
         next_c = peek_char(i)
         return [true, false] if TERMINATORS_OBJECT_VALUE.include?(next_c)
       elsif next_c == rstring_delimiter && peek_char(i - 1) != '\\'
-        # Check if self.index:self.index+i is only whitespaces, break if that's the case
-        return [false, false] if (1..i).all? { |j| peek_char(j).to_s.match(/\s/) }
+        # Check if self.index:self.index+i is only whitespaces
+        return [false, false] if skip_whitespaces_at(start_idx: 1) >= i
 
         if current_context?(:object_value)
           return check_unmatched_in_object_value(index: i, lstring_delimiter:, rstring_delimiter:)
@@ -871,7 +871,8 @@ module JsonMend
       next_c = peek_char(i)
 
       is_gap_clean = true
-      is_gap_clean = (1...i).all? { |k| peek_char(k)&.match?(/\s/) } if missing_quotes && next_c
+      is_gap_clean = skip_whitespaces_at(start_idx: 1) >= i if missing_quotes && next_c
+
       if next_c && is_gap_clean
         i += 1
         # found a delimiter, now we need to check that is followed strictly by a comma or brace
