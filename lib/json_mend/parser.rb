@@ -581,7 +581,6 @@ module JsonMend
     )
       char = peek_char
       unmatched_delimiter = false
-      safe_string_until = -1 # Fast-forward pointer to safely bypass O(N^2) lookaheads
       # --- Main Parsing Loop ---
       while !@scanner.eos? && char != rstring_delimiter
         # Fast-path for unquoted keys (e.g. { key: val })
@@ -600,33 +599,30 @@ module JsonMend
           missing_quotes:
         )
 
-        # Bypass expensive comma/bracket checks because we already validated this segment extends to the next quote
-        if @scanner.pos > safe_string_until
-          if current_context?(:object_value) && TERMINATORS_OBJECT_VALUE.include?(char) &&
-             (string_parts.empty? || string_parts.last != rstring_delimiter)
+        if current_context?(:object_value) && TERMINATORS_OBJECT_VALUE.include?(char) &&
+           (string_parts.empty? || string_parts.last != rstring_delimiter)
 
-            is_break = check_rstring_delimiter_missing(
-              string_parts:,
-              lstring_delimiter:,
-              rstring_delimiter:,
-              missing_quotes:
-            )
-            break if is_break
-          end
+          is_break = check_rstring_delimiter_missing(
+            string_parts:,
+            lstring_delimiter:,
+            rstring_delimiter:,
+            missing_quotes:
+          )
+          break if is_break
+        end
 
-          if char == ']' && context_contain?(:array) && string_parts.last != rstring_delimiter
-            i = skip_to_character(rstring_delimiter)
-            # No delimiter found
-            break unless peek_char(i)
-          end
+        if char == ']' && context_contain?(:array) && string_parts.last != rstring_delimiter
+          i = skip_to_character(rstring_delimiter)
+          # No delimiter found
+          break unless peek_char(i)
+        end
 
-          if current_context?(:object_value) && char == '}'
-            # We found the end of an object while parsing a value
-            # Check if the object is really over, to avoid doubling the closing brace
-            i = skip_whitespaces_at(start_idx: 1)
-            next_c = peek_char(i)
-            break unless next_c
-          end
+        if current_context?(:object_value) && char == '}'
+          # We found the end of an object while parsing a value
+          # Check if the object is really over, to avoid doubling the closing brace
+          i = skip_whitespaces_at(start_idx: 1)
+          next_c = peek_char(i)
+          break unless next_c
         end
 
         string_parts << char
@@ -644,7 +640,7 @@ module JsonMend
         end
 
         # If we are in object key context and we find a colon, it could be a missing right quote
-        if @scanner.pos > safe_string_until && char == ':' && !missing_quotes && current_context?(:object_key)
+        if char == ':' && !missing_quotes && current_context?(:object_key)
           is_break = handle_missing_quotes_termination(
             lstring_delimiter:,
             rstring_delimiter:
@@ -670,8 +666,6 @@ module JsonMend
               string_parts << char.to_s
               @scanner.getch
               char = peek_char
-
-              safe_string_until = @scanner.pos + skip_to_character(rstring_delimiter)
             end
           end
         end

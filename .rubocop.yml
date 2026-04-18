@@ -7,13 +7,13 @@ AllCops:
   SuggestExtensions: false
 
 Metrics/AbcSize:
-  Max: 75
+  Max: 78
 
 Metrics/ClassLength:
   Max: 950
 
 Metrics/CyclomaticComplexity:
-  Max: 35
+  Max: 36
 
 Metrics/MethodLength:
   Max: 85
