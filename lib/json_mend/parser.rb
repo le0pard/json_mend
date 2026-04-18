@@ -154,7 +154,7 @@ module JsonMend
           else
             # Stop if we hit a terminator for the current context to avoid consuming it as garbage
             if (current_context?(:array) && char == ']') ||
-               (current_context?(:object_value) && char == '}') ||
+               (current_context?(:object_value) && TERMINATORS_OBJECT_VALUE.include?(char)) ||
                (current_context?(:object_key) && char == '}')
               return JSON_STOP_TOKEN
             end
@@ -313,7 +313,7 @@ module JsonMend
 
       # If parse_json returned JSON_STOP_TOKEN (nothing found due to garbage->terminator),
       # treat it as nil (null) for object values to be safe.
-      value == JSON_STOP_TOKEN ? nil : value
+      value == JSON_STOP_TOKEN ? '' : value
     end
 
     # Encapsulates the logic for merging an array that appears without a key.

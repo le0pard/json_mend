@@ -862,6 +862,22 @@ RSpec.describe JsonMend do
         {
           input: "{#{'"": 1, ' * 100}}",
           description: 'repeated empty keys'
+        },
+        {
+          input: '- ' * 1000,
+          description: 'repeated standalone dashes'
+        },
+        {
+          input: '. ' * 1000,
+          description: 'repeated standalone periods'
+        },
+        {
+          input: '{"key": - }',
+          description: 'dangling dash as object value'
+        },
+        {
+          input: '[ -, -, - ]',
+          description: 'standalone dashes in array'
         }
       ].each do |test_case|
         it "does not hang on #{test_case[:description]}" do
@@ -1257,6 +1273,26 @@ RSpec.describe JsonMend do
           input: 'Version . is out. [1.5, 2.0]',
           expected_output: JSON.dump([1.5, 2.0]),
           desc: 'stray period in text vs actual float in JSON'
+        },
+        {
+          input: '- {"a": 1}',
+          expected_output: JSON.dump({ 'a' => 1 }),
+          desc: 'stray dash before object'
+        },
+        {
+          input: '{"a": - , "b": 2}',
+          expected_output: JSON.dump({ 'a' => '', 'b' => 2 }),
+          desc: 'stray dash acting as missing value'
+        },
+        {
+          input: '[. , 1, 2]',
+          expected_output: JSON.dump([1, 2]),
+          desc: 'stray period at start of array'
+        },
+        {
+          input: 'Here is a list - [1, 2]',
+          expected_output: JSON.dump([1, 2]),
+          desc: 'conversational dash before array'
         }
       ].each do |tc|
         it "ignores non-numeric stray characters: #{tc[:desc]}" do
