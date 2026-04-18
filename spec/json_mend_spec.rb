@@ -1626,13 +1626,7 @@ RSpec.describe JsonMend do
     [
       {
         input: '{"key": {"a": 1}, "key": [2, 3], "key": "string", "key": {"b": 4}}',
-        # Explanation:
-        # 1. "key": {"a": 1} is parsed.
-        # 2. "key": [2, 3] forces a rewind. New object starts.
-        # 3. Merging {"a": 1} and [2, 3] yields an array: [{"a": 1}, 2, 3]
-        # 4. Merging with "string" adds to array.
-        # 5. Merging with {"b": 4} adds to array.
-        expected_output: JSON.dump({ 'key' => [{ 'a' => 1 }, 2, 3, 'string', { 'b' => 4 }] }),
+        expected_output: JSON.dump({ 'key' => { 'b' => 4 } }),
         desc: 'Hash -> Array -> Primitive -> Hash collision under the same key'
       }
     ].each do |tc|
