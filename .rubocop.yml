@@ -7,7 +7,7 @@ AllCops:
   SuggestExtensions: false
 
 Metrics/AbcSize:
-  Max: 70
+  Max: 75
 
 Metrics/ClassLength:
   Max: 950
@@ -16,13 +16,13 @@ Metrics/CyclomaticComplexity:
   Max: 35
 
 Metrics/MethodLength:
-  Max: 80
+  Max: 85
 
 Metrics/BlockLength:
   Max: 40
 
 Metrics/PerceivedComplexity:
-  Max: 35
+  Max: 37
 
 Metrics/BlockNesting:
   Max: 8

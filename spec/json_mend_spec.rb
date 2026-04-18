@@ -909,6 +909,22 @@ RSpec.describe JsonMend do
           # Unquoted key and value context forces aggressive scan for missing terminating quotes.
           input: "{\"key\": unquoted#{' ' * 20_000}\": }",
           description: 'massive string gap forcing O(N^2) check_missing_quotes_in_object_value scan'
+        },
+        {
+          input: "{\"key\": \"v#{',a' * 20_000}\"}",
+          description: 'massive string gap with commas forcing O(N^2) check_rstring_delimiter_missing'
+        },
+        {
+          input: "{\"key\": \"v#{':a' * 20_000}\"}",
+          description: 'massive string gap with colons forcing O(N^2) handle_missing_quotes_termination'
+        },
+        {
+          input: "{\"key\": \"v#{']a' * 20_000}\"}",
+          description: 'massive string gap with closing brackets forcing O(N^2) skip_to_character'
+        },
+        {
+          input: "{\"key\": \"v#{'""' * 10_000}\"}",
+          description: 'massive string gap with internal quotes forcing O(N^2) determine_complex_delimiter_action'
         }
       ].each do |test_case|
         it "does not hang on #{test_case[:description]}" do
