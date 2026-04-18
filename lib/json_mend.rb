@@ -24,7 +24,7 @@ module JsonMend
 
         # Verify the native parser didn't produce invalid UTF-8 (like unpaired surrogates)
         # by ensuring it can safely dump its own output.
-        JSON.dump(parsed)
+        JSON.generate(parsed)
 
         parsed
       rescue JSON::ParserError, JSON::GeneratorError

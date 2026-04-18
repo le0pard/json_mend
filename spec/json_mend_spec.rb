@@ -813,6 +813,11 @@ RSpec.describe JsonMend do
         {
           input: '{"a": 1} [1, 2] {"b": 2}',
           expected_output: JSON.dump([{ 'a' => 1 }, [1, 2], { 'b' => 2 }])
+        },
+        {
+          input: '{"massive_number": 1e99999}',
+          expected_output: JSON.dump({ 'massive_number' => '1e99999' }),
+          desc: 'extremely large numbers that evaluate to Infinity should fall back to string to prevent JSON::GeneratorError'
         }
       ].each do |test_case|
         it "repairs #{test_case[:input]} to #{test_case[:expected_output]}" do
@@ -878,6 +883,14 @@ RSpec.describe JsonMend do
         {
           input: '[ -, -, - ]',
           description: 'standalone dashes in array'
+        },
+        {
+          input: "{\n  \"key\": \"value\" // comment\n}",
+          description: 'line comment followed by a real newline (scan_until bug)'
+        },
+        {
+          input: '{ // trailing comment without newline at EOF',
+          description: 'line comment hitting EOF without newline'
         }
       ].each do |test_case|
         it "does not hang on #{test_case[:description]}" do
@@ -1555,6 +1568,16 @@ RSpec.describe JsonMend do
       it 'raises JSON::NestingError to prevent SystemStackError on objects' do
         expect do
           described_class.repair(('{"a":' * 200) + ('}' * 200))
+        end.to raise_error(JSON::NestingError)
+      end
+
+      it 'raises JSON::NestingError to prevent SystemStackError during deep merge' do
+        # Create a deeply nested object, and duplicate it so the parser forces a deep merge
+        nested_json = "#{'{"a":' * 150}1#{'}' * 150}"
+        duplicated_payload = "#{nested_json} #{nested_json}"
+
+        expect do
+          described_class.repair(duplicated_payload)
         end.to raise_error(JSON::NestingError)
       end
     end

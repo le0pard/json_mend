@@ -97,13 +97,15 @@ module JsonMend
       @depth -= 1
     end
 
-    def deep_merge_hashes(target, source)
+    def deep_merge_hashes(target, source, current_depth = 0)
+      raise JSON::NestingError, "merge nesting of #{current_depth} is too deep" if current_depth > MAX_ALLOWED_DEPTH
+
       result = target.dup
       source.each do |key, new_val|
         if result.key?(key)
           old_val = result[key]
           result[key] = if old_val.is_a?(Hash) && new_val.is_a?(Hash)
-                          deep_merge_hashes(old_val, new_val)
+                          deep_merge_hashes(old_val, new_val, current_depth + 1)
                         elsif old_val.is_a?(Array) && new_val.is_a?(Array)
                           old_val + new_val
                         elsif old_val.is_a?(Array)
@@ -1119,6 +1121,8 @@ module JsonMend
                else
                  Integer(scanned_str, 10, exception: false)
                end
+
+      return scanned_str if result.is_a?(Float) && (result.infinite? || result.nan?)
 
       result || scanned_str
     end
