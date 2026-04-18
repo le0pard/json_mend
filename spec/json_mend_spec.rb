@@ -1636,6 +1636,52 @@ RSpec.describe JsonMend do
     end
   end
 
+  context 'when handling lookbehinds with preceding multibyte characters (getbyte vs string index)' do
+    [
+      {
+        # '👍' is 4 bytes but 1 char. 3 of them push the byte offset +9 ahead of the char index.
+        # If the parser uses string[pos - 1] to check the comma, it will throw an IndexError.
+        input: '{"👍👍👍_key", 105,12,',
+        expected_output: JSON.dump({ '👍👍👍_key' => true, '105,12' => true }),
+        desc: 'number format commas flanked by digits with preceding multibyte emojis'
+      },
+      {
+        # The byte offset when parsing "true" will be ~22, but the string only has ~17 characters.
+        # string[21] would crash. getbyte(21) safely returns 101 (ASCII 'e').
+        input: '{"😀😀😀_emoji": falsetrue}',
+        expected_output: JSON.dump({ '😀😀😀_emoji' => false, 'true' => true }),
+        desc: 'concatenated booleans with preceding multibyte emojis'
+      }
+    ].each do |tc|
+      it "safely processes #{tc[:desc]} without IndexError or offset mismatch" do
+        expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+      end
+    end
+  end
+
+  context 'when checking unmatched delimiters across multibyte gaps' do
+    [
+      {
+        # The gap contains a 4-byte emoji
+        input: '["a" 👍 "b"]',
+        expected_output: JSON.dump(['a" 👍 "b']),
+        desc: 'treats non-whitespace multibyte gaps as internal string content'
+      },
+      {
+        # The gap is strictly whitespace
+        input: '["a"   "b"]',
+        expected_output: JSON.dump(%w[a b]),
+        desc: 'splits array elements when gap is strictly whitespace'
+      }
+    ].each do |tc|
+      it "safely processes unmatched array quote checks and #{tc[:desc]}", :aggregate_failures do
+        expect do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end.not_to raise_error
+      end
+    end
+  end
+
   context 'when arrays contain purely delimiters or missing bounds' do
     [
       {

@@ -263,8 +263,19 @@ module JsonMend
         if %w[true false null].include?(key.downcase)
           # Look back: If it's concatenated to the previous value (like falsetrue), keep it.
           # If it's separated by space/delimiters, it's trailing garbage, so drop it.
-          char_before = pos_before_key.positive? ? @scanner.string[pos_before_key - 1] : nil
-          is_concatenated = char_before&.match?(/[a-zA-Z0-9_$-]/)
+          if pos_before_key.positive?
+            prev_byte = @scanner.string.getbyte(pos_before_key - 1)
+            # Check ASCII byte ranges for a-z, A-Z, 0-9, $, -, and _
+            is_concatenated = prev_byte && (
+              prev_byte.between?(48, 57)  || # 0-9
+              prev_byte.between?(65, 90)  || # A-Z
+              prev_byte.between?(97, 122) || # a-z
+              [36, 45, 95].include?(prev_byte) # $, -, _
+            )
+          else
+            is_concatenated = false
+          end
+
           return [nil, nil, false] unless is_concatenated
         end
 
@@ -786,21 +797,19 @@ module JsonMend
 
     def check_unmatched_in_array(rstring_delimiter:)
       saved_pos = @scanner.pos
+
       @scanner.getch # Skip the current char (the potential closer)
+      pos_after_first_quote = @scanner.pos # Safely records offset even if quote was a multibyte smart quote
 
       found_next = false
-      j = 1
 
       # Scan forward linearly
       while (c = @scanner.getch)
-        j += 1
         next if c != rstring_delimiter
 
         # Check if escaped (count preceding backslashes)
-        # We need to look behind from the current scanner position
         bk = 1
         slashes = 0
-        # Look back in the string buffer directly for speed
         while (@scanner.pos - 1 - bk >= 0) &&
               (char_code = @scanner.string.getbyte(@scanner.pos - 1 - bk)) &&
               char_code == 92 # 92 is backslash
@@ -814,22 +823,26 @@ module JsonMend
         end
       end
 
+      # Record exact byte position after we found the next valid quote
+      pos_after_second_quote = @scanner.pos
+      pos_before_second_quote = found_next ? pos_after_second_quote - rstring_delimiter.bytesize : @scanner.pos
+
       # Reset position immediately after scanning
       @scanner.pos = saved_pos
 
       # Check conditions to STOP (treat as closing quote):
       # a) Strictly whitespace between quotes
-      # We can check this by examining the substring we just scanned
-      substring_between = @scanner.string.byteslice(saved_pos + 1, j - 2)
+      byte_length = pos_before_second_quote - pos_after_first_quote
+      byte_length = 0 if byte_length.negative?
+
+      substring_between = @scanner.string.byteslice(pos_after_first_quote, byte_length)
       is_whitespace = substring_between&.match?(/\A\s*\z/)
 
       # b) Next quote is followed by a separator
       is_next_closer = false
       if found_next
-        # We need to peek ahead from where we found the next quote.
-        # Since we reset the scanner, we can use peek_char with the calculated offset `j`
-        # OR better, temporarily move scanner to `saved_pos + j`
-        @scanner.pos = saved_pos + j
+        # Jump directly to the exact byte offset after the second quote!
+        @scanner.pos = pos_after_second_quote
         @scanner.skip(/\s+/)
         is_next_closer = TERMINATORS_VALUE.include?(@scanner.check(/./))
         @scanner.pos = saved_pos
@@ -1068,9 +1081,10 @@ module JsonMend
         if char == ','
           # Break on comma UNLESS it looks like part of a number format (e.g., 105,12)
           # We check if the comma is flanked by digits on both sides
-          prev_char = @scanner.pos.positive? ? @scanner.string[@scanner.pos - 1] : nil
+          prev_byte = @scanner.pos.positive? ? @scanner.string.getbyte(@scanner.pos - 1) : nil
           next_char = peek_char(1)
-          is_number_comma = prev_char&.match?(/\d/) && next_char&.match?(/\d/)
+          # Check if the previous byte is ASCII '0' to '9' (bytes 48 to 57)
+          is_number_comma = prev_byte&.between?(48, 57) && next_char&.match?(/\d/)
 
           return true unless is_number_comma
         end
