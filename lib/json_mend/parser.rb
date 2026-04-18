@@ -260,7 +260,13 @@ module JsonMend
       value = parse_object_value(colon_found: colon_found || is_bracketed)
 
       if value == :inferred_true
-        return [nil, nil, false] if %w[true false null].include?(key.downcase)
+        if %w[true false null].include?(key.downcase)
+          # Look back: If it's concatenated to the previous value (like falsetrue), keep it.
+          # If it's separated by space/delimiters, it's trailing garbage, so drop it.
+          char_before = pos_before_key.positive? ? @scanner.string[pos_before_key - 1] : nil
+          is_concatenated = char_before&.match?(/[a-zA-Z0-9_$-]/)
+          return [nil, nil, false] unless is_concatenated
+        end
 
         value = true
       end
@@ -1055,8 +1061,21 @@ module JsonMend
       missing_quotes:
     )
       return false unless missing_quotes
-      return true if current_context?(:object_key) && (char == ':' || char.match?(/\s/))
-      return true if current_context?(:object_key) && TERMINATORS_ARRAY.include?(char)
+
+      if current_context?(:object_key)
+        return true if char == ':' || char.match?(/\s/) || TERMINATORS_ARRAY.include?(char)
+
+        if char == ','
+          # Break on comma UNLESS it looks like part of a number format (e.g., 105,12)
+          # We check if the comma is flanked by digits on both sides
+          prev_char = @scanner.pos.positive? ? @scanner.string[@scanner.pos - 1] : nil
+          next_char = peek_char(1)
+          is_number_comma = prev_char&.match?(/\d/) && next_char&.match?(/\d/)
+
+          return true unless is_number_comma
+        end
+      end
+
       return true if current_context?(:array) && TERMINATORS_ARRAY_ITEM.include?(char)
 
       false

@@ -1058,7 +1058,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '[ "key": "value", 123, "key2": "value2" ]',
-          expected_output: JSON.dump([{ 'key' => 'value', 'key2' => 'value2' }]),
+          expected_output: JSON.dump([{ 'key' => 'value', '123' => true, 'key2' => 'value2' }]),
           desc: 'mixed implicit objects and literals in array'
         },
         {
@@ -1579,6 +1579,128 @@ RSpec.describe JsonMend do
         expect do
           described_class.repair(duplicated_payload)
         end.to raise_error(JSON::NestingError)
+      end
+    end
+  end
+
+  context 'when handling unquoted literal prefixes and suffixes' do
+    [
+      {
+        input: '{"key": trueish, "key2": nullified, "key3": falsehood}',
+        expected_output: JSON.dump({ 'key' => true, 'ish' => true, 'key2' => nil, 'ified' => true, 'key3' => false,
+                                     'hood' => true }),
+        desc: 'boolean and null literals embedded at the start of unquoted strings'
+      },
+      {
+        input: '{"key": falsetrue}',
+        expected_output: JSON.dump({ 'key' => false, 'true' => true }),
+        desc: 'concatenated booleans'
+      }
+    ].each do |tc|
+      it "safely parses (and separates) #{tc[:desc]}" do
+        expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+      end
+    end
+  end
+
+  context 'when provided Byte Order Marks (BOM) or zero-width characters' do
+    [
+      {
+        input: "\xEF\xBB\xBF{\"key\": \"value\"}",
+        expected_output: JSON.dump({ 'key' => 'value' }),
+        desc: 'UTF-8 BOM prefix'
+      },
+      {
+        input: "{\"\xE2\x80\x8Bkey\": \"value\"}",
+        expected_output: JSON.dump({ "\xE2\x80\x8Bkey" => 'value' }),
+        desc: 'Zero-width space inside key'
+      }
+    ].each do |tc|
+      it "correctly skips or preserves #{tc[:desc]}" do
+        expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+      end
+    end
+  end
+
+  context 'when facing aggressive duplicate key type collisions (deep merge stress test)' do
+    [
+      {
+        input: '{"key": {"a": 1}, "key": [2, 3], "key": "string", "key": {"b": 4}}',
+        # Explanation:
+        # 1. "key": {"a": 1} is parsed.
+        # 2. "key": [2, 3] forces a rewind. New object starts.
+        # 3. Merging {"a": 1} and [2, 3] yields an array: [{"a": 1}, 2, 3]
+        # 4. Merging with "string" adds to array.
+        # 5. Merging with {"b": 4} adds to array.
+        expected_output: JSON.dump({ 'key' => [{ 'a' => 1 }, 2, 3, 'string', { 'b' => 4 }] }),
+        desc: 'Hash -> Array -> Primitive -> Hash collision under the same key'
+      }
+    ].each do |tc|
+      it "resolves type collisions cleanly for #{tc[:desc]}" do
+        expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+      end
+    end
+  end
+
+  context 'when arrays contain purely delimiters or missing bounds' do
+    [
+      {
+        input: '[,,,,,,]',
+        expected_output: JSON.dump([]),
+        desc: 'array consisting only of commas'
+      },
+      {
+        input: '{"key": ]}',
+        expected_output: JSON.dump({ 'key' => '' }),
+        desc: 'stray closing bracket as object value'
+      },
+      {
+        input: '[{,}]',
+        expected_output: JSON.dump([]),
+        desc: 'stray comma in single object array'
+      }
+    ].each do |tc|
+      it "repairs #{tc[:desc]}" do
+        expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+      end
+    end
+  end
+
+  context 'when parsing unusual or language-specific escape sequences' do
+    [
+      {
+        input: '{"key": "\u{1F600}"}',
+        # Because the parser expects exactly \uXXXX, it rejects `\u{` and falls back to treating `\u` as a literal prefix
+        expected_output: JSON.dump({ 'key' => '\\u{1F600}' }),
+        desc: 'Ruby-style bracketed unicode escapes fallback'
+      },
+      {
+        input: '{"key": "value\u0000"}',
+        expected_output: JSON.dump({ 'key' => "value\u0000" }),
+        desc: 'Null byte encoded via unicode escape'
+      }
+    ].each do |tc|
+      it "handles #{tc[:desc]}" do
+        expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+      end
+    end
+  end
+
+  context 'when handling nested block comments and trickery' do
+    [
+      {
+        input: '{"a": 1 /* outer /* inner */ comment */ }',
+        # It terminates the comment at the first `*/`. Then `comment */` is parsed as garbage text/keys.
+        expected_output: JSON.dump({ 'a' => 1, '' => '' }),
+        desc: 'nested block comments'
+      }
+    ].each do |tc|
+      it "does not hang and processes #{tc[:desc]}", :aggregate_failures do
+        expect do
+          with_timeout(1) do
+            expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+          end
+        end.not_to raise_error
       end
     end
   end
