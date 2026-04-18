@@ -429,7 +429,7 @@ module JsonMend
       char = prepare_string_parsing
 
       # A valid string can only start with a valid quote or, in our case, with a literal
-      while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char.match?(/[\p{L}0-9$_-]/)
+      while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char&.match?(/[\p{L}0-9$_-]/)
         return '' if TERMINATORS_STRING_GUESSED.include?(char)
 
         @scanner.getch
