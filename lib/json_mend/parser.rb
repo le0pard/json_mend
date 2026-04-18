@@ -735,8 +735,7 @@ module JsonMend
         check_comma_in_object_value = false if check_comma_in_object_value && next_c.match?(/\p{L}/)
 
         # If we are in an object context, let's check for the right delimiters
-        if (context_contain?(:object_key) && TERMINATORS_OBJECT_KEY.include?(next_c)) ||
-           (context_contain?(:object_value) && TERMINATORS_OBJECT_KEY.include?(next_c)) ||
+        if (context_contain?(:object) && TERMINATORS_OBJECT_KEY.include?(next_c)) ||
            (context_contain?(:array) && TERMINATORS_ARRAY_ITEM.include?(next_c)) ||
            (
              check_comma_in_object_value &&
@@ -1218,7 +1217,7 @@ module JsonMend
       # Check for a line comment `//...` or `#...`
       elsif @scanner.scan(%r{//|#})
         in_array = context_contain?(:array)
-        in_object = context_contain?(:object) || context_contain?(:object_value)
+        in_object = context_contain?(:object)
 
         pattern = if context_contain?(:object_key)
                     /[\n\r:}\]]|\\n|\\r/
