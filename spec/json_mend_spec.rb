@@ -801,6 +801,14 @@ RSpec.describe JsonMend do
           input: '{"arr": [1]} {"arr": [2, 3]}',
           expected_output: JSON.dump({ 'arr' => [1, 2, 3] })
         },
+        {
+          input: '{"a": 1} {"a": 2}',
+          expected_output: JSON.dump({ 'a' => [1, 2] })
+        },
+        {
+          input: '{"a": {"x": 1}} {"a": {"y": 2}, "b": 2}',
+          expected_output: JSON.dump({ 'a' => { 'x' => 1, 'y' => 2 }, 'b' => 2 })
+        },
         # Multiple objects of different types: All are kept, hashes are only merged if consecutive
         {
           input: '{"a": 1} [1, 2] {"b": 2}',

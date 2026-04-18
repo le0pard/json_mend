@@ -73,7 +73,7 @@ module JsonMend
             next if new_json.is_a?(String) && new_json.strip.match?(/^[}\]]+$/)
 
             if both_hash?(json.last, new_json)
-              deep_merge_hashes!(json.last, new_json)
+              json[-1] = deep_merge_hashes(json.last, new_json)
             else
               json << new_json
             end
@@ -97,22 +97,28 @@ module JsonMend
       @depth -= 1
     end
 
-    def deep_merge_hashes!(target, source)
+    def deep_merge_hashes(target, source)
+      result = target.dup
       source.each do |key, new_val|
-        if target.key?(key)
-          old_val = target[key]
-          if old_val.is_a?(Hash) && new_val.is_a?(Hash)
-            deep_merge_hashes!(old_val, new_val)
-          elsif old_val.is_a?(Array) && new_val.is_a?(Array)
-            target[key] = old_val + new_val
-          else
-            target[key] = new_val
-          end
+        if result.key?(key)
+          old_val = result[key]
+          result[key] = if old_val.is_a?(Hash) && new_val.is_a?(Hash)
+                          deep_merge_hashes(old_val, new_val)
+                        elsif old_val.is_a?(Array) && new_val.is_a?(Array)
+                          old_val + new_val
+                        elsif old_val.is_a?(Array)
+                          old_val + [new_val]
+                        elsif new_val.is_a?(Array)
+                          [old_val] + new_val
+                        else
+                          # If primitives collide, preserve both in an array unless identical
+                          old_val == new_val ? old_val : [old_val, new_val]
+                        end
         else
-          target[key] = new_val
+          result[key] = new_val
         end
       end
-      target
+      result
     end
 
     def parse_json
@@ -1090,34 +1096,31 @@ module JsonMend
       @scanner.getch if peek_char == '"'
 
       # Attempt to convert the string to the appropriate number type.
-      # Use rescue to handle conversion errors gracefully, returning the original string.
-      begin
-        # Fix for Ruby < 3.4: "1." is not a valid float.
-        # If it ends with '.', we strip the dot and force Float conversion
-        # to ensure "1." becomes 1.0 (Float) instead of 1 (Integer).
-        if scanned_str.end_with?('.')
-          Float(scanned_str[0...-1])
-        elsif scanned_str.include?(',')
-          # Check if commas are being used as thousands separators (e.g., 1,234 or 1,234,567.89)
-          if scanned_str.count(',') > 1 || scanned_str.match?(/,\d{3}(?:\.\d+)?$/)
-            cleaned = scanned_str.delete(',')
-            if cleaned.match?(/[.eE]/)
-              Float(cleaned)
-            else
-              Integer(cleaned, 10)
-            end
-          else
-            # Treat single comma as a decimal point (European style, e.g., 1,5 -> 1.5)
-            Float(scanned_str.tr(',', '.'))
-          end
-        elsif scanned_str.match?(/[.eE]/)
-          Float(scanned_str)
-        else
-          Integer(scanned_str, 10)
-        end
-      rescue ArgumentError
-        scanned_str
-      end
+      # Fix for Ruby < 3.4: "1." is not a valid float.
+      # If it ends with '.', we strip the dot and force Float conversion
+      # to ensure "1." becomes 1.0 (Float) instead of 1 (Integer).
+      result = if scanned_str.end_with?('.')
+                 Float(scanned_str[0...-1], exception: false)
+               elsif scanned_str.include?(',')
+                 # Check if commas are being used as thousands separators (e.g., 1,234 or 1,234,567.89)
+                 if scanned_str.count(',') > 1 || scanned_str.match?(/,\d{3}(?:\.\d+)?$/)
+                   cleaned = scanned_str.delete(',')
+                   if cleaned.match?(/[.eE]/)
+                     Float(cleaned, exception: false)
+                   else
+                     Integer(cleaned, 10, exception: false)
+                   end
+                 else
+                   # Treat single comma as a decimal point (European style, e.g., 1,5 -> 1.5)
+                   Float(scanned_str.tr(',', '.'), exception: false)
+                 end
+               elsif scanned_str.match?(/[.eE]/)
+                 Float(scanned_str, exception: false)
+               else
+                 Integer(scanned_str, 10, exception: false)
+               end
+
+      result || scanned_str
     end
 
     # Parses the JSON literals `true`, `false`, or `null`.
@@ -1153,21 +1156,23 @@ module JsonMend
         in_array = context_contain?(:array)
         in_object = context_contain?(:object_value)
 
-        if context_contain?(:object_key)
-          # If parsing a key, we must stop at ':' and structural closers
-          @scanner.scan_until(/(?=[\n\r:}\]]|\\n|\\r)/) || @scanner.terminate
-        elsif in_array && in_object
-          # Nested ambiguity, stop at any closer
-          @scanner.scan_until(/(?=[\n\r}\]]|\\n|\\r)/) || @scanner.terminate
-        elsif in_array
-          # Inside array, stop at ']'
-          @scanner.scan_until(/(?=[\n\r\]]|\\n|\\r)/) || @scanner.terminate
-        elsif in_object
-          # Inside object value, stop at '}'
-          @scanner.scan_until(/(?=[\n\r}]|\\n|\\r)/) || @scanner.terminate
+        pattern = if context_contain?(:object_key)
+                    /[\n\r:}\]]|\\n|\\r/
+                  elsif in_array && in_object
+                    /[\n\r}\]]|\\n|\\r/
+                  elsif in_array
+                    /[\n\r\]]|\\n|\\r/
+                  elsif in_object
+                    /[\n\r}]|\\n|\\r/
+                  else
+                    /[\n\r]|\\n|\\r/
+                  end
+
+        if @scanner.scan_until(pattern)
+          # Un-consume the terminator so it can be handled structurally
+          @scanner.pos -= @scanner.matched.bytesize
         else
-          # Top level or neutral, stop at newline
-          @scanner.scan_until(/(?=[\n\r]|\\n|\\r)/) || @scanner.terminate
+          @scanner.terminate
         end
 
         # Consume literal escaped newlines so they don't break subsequent parsing.
