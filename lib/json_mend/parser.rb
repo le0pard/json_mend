@@ -685,11 +685,16 @@ module JsonMend
       return false unless missing_quotes && current_context?(:object_value)
 
       i = 1
-      next_c = peek_char(i)
-      while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
+      saved_pos = @scanner.pos
+      @scanner.getch # Skip char at offset 0
+
+      while (next_c = @scanner.getch)
+        break if [rstring_delimiter, lstring_delimiter].include?(next_c)
+
         i += 1
-        next_c = peek_char(i)
       end
+
+      @scanner.pos = saved_pos
 
       return false unless next_c
 
@@ -699,24 +704,26 @@ module JsonMend
       i = skip_whitespaces_at(start_idx: i)
       next_c = peek_char(i)
 
-      if next_c && next_c == ':'
-        @scanner.pos -= 1
-        return true
-      end
+      return true if next_c && next_c == ':'
 
       false
     end
 
     def determine_complex_delimiter_action(lstring_delimiter, rstring_delimiter)
+      saved_pos = @scanner.pos
+      @scanner.getch # Skip char at offset 0
+
       i = 1
-      next_c = peek_char(i)
       check_comma_in_object_value = true
 
       # Check if eventually there is a rstring delimiter, otherwise we bail
-      while next_c && ![rstring_delimiter, lstring_delimiter].include?(next_c)
+      while (next_c = @scanner.getch)
+        break if [rstring_delimiter, lstring_delimiter].include?(next_c)
+
         # This is a bit of a weird workaround, essentially in object_value context we don't always break on commas
         # This is because the routine after will make sure to correct any bad guess and this solves a corner case
         check_comma_in_object_value = false if check_comma_in_object_value && next_c.match?(/\p{L}/)
+
         # If we are in an object context, let's check for the right delimiters
         if (context_contain?(:object_key) && TERMINATORS_OBJECT_KEY.include?(next_c)) ||
            (context_contain?(:object_value) && TERMINATORS_OBJECT_KEY.include?(next_c)) ||
@@ -730,8 +737,10 @@ module JsonMend
         end
 
         i += 1
-        next_c = peek_char(i)
       end
+
+      @scanner.pos = saved_pos
+      next_c = peek_char(i)
 
       # If we stopped for a comma in object_value context, let's check if find a "} at the end of the string
       if next_c == ',' && current_context?(:object_value)
@@ -772,22 +781,29 @@ module JsonMend
         next_c = peek_char(index)
         return [true, false] if next_c == ':'
       end
+
       # We found a delimiter and we need to check if this is a key
       # so find a rstring_delimiter and a colon after
       index = skip_to_character(rstring_delimiter, start_idx: index + 1)
       index += 1
-      next_c = peek_char(index)
-      while next_c && next_c != ':'
-        if TERMINATORS_VALUE.include?(next_c) || (
-          next_c == rstring_delimiter &&
-          peek_char(index - 1) != '\\'
-        )
-          break
-        end
+
+      saved_pos = @scanner.pos
+      index.times { @scanner.getch } # Advance to starting index safely
+
+      while (next_c = @scanner.getch)
+        break if next_c == ':'
+
+        # Safely determine if the previous character was a backslash, guarding against multibyte characters
+        prev_byte_idx = @scanner.pos - next_c.bytesize - 1
+        is_escaped = prev_byte_idx >= 0 && @scanner.string.getbyte(prev_byte_idx) == 92
+
+        break if TERMINATORS_VALUE.include?(next_c) || (next_c == rstring_delimiter && !is_escaped)
 
         index += 1
-        next_c = peek_char(index)
       end
+
+      @scanner.pos = saved_pos
+      next_c = peek_char(index)
 
       # Only if we fail to find a ':' then we know this is misplaced quote
       return [true, true] if next_c != ':'

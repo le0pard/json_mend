@@ -891,6 +891,24 @@ RSpec.describe JsonMend do
         {
           input: '{ // trailing comment without newline at EOF',
           description: 'line comment hitting EOF without newline'
+        },
+        {
+          # Triggers determine_complex_delimiter_action logic.
+          # Long sequence of letters avoids early comma-breaks.
+          input: "{\"key\": \"value#{' a' * 20_000},\"",
+          description: 'massive string gap forcing O(N^2) determine_complex_delimiter_action scan'
+        },
+        {
+          # Triggers check_unmatched_in_object_value logic.
+          # Missing comma in object value context drops into nested verification.
+          input: "{\"key\": \"va\"lue\"#{' ' * 20_000}: }",
+          description: 'massive string gap forcing O(N^2) check_unmatched_in_object_value scan'
+        },
+        {
+          # Triggers check_missing_quotes_in_object_value logic.
+          # Unquoted key and value context forces aggressive scan for missing terminating quotes.
+          input: "{\"key\": unquoted#{' ' * 20_000}\": }",
+          description: 'massive string gap forcing O(N^2) check_missing_quotes_in_object_value scan'
         }
       ].each do |test_case|
         it "does not hang on #{test_case[:description]}" do
