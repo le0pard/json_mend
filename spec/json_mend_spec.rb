@@ -232,6 +232,26 @@ RSpec.describe JsonMend do
         {
           input: '{ "key": "value" /* comment',
           expected_output: JSON.dump({ key: 'value' })
+        },
+        {
+          input: "{\n  \"a\": 1,\n  // this is a very long and chatty comment\n  \"b\": 2\n}",
+          expected_output: JSON.dump({ 'a' => 1, 'b' => 2 }),
+          desc: 'line comment with spaces inside an object terminated by a newline'
+        },
+        {
+          input: '{"a": 1 // inline comment touching closing brace}',
+          expected_output: JSON.dump({ 'a' => 1 }),
+          desc: 'line comment terminated immediately by an object closing brace'
+        },
+        {
+          input: '[1, 2 // inline comment touching array bracket]',
+          expected_output: JSON.dump([1, 2]),
+          desc: 'line comment terminated immediately by an array closing bracket'
+        },
+        {
+          input: "{\n  \"key\": \"value\" # ruby style comment\n}",
+          expected_output: JSON.dump({ 'key' => 'value' }),
+          desc: 'hash-style line comment terminated by newline inside object'
         }
       ].each do |test_case|
         it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do

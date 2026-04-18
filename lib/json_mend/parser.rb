@@ -173,6 +173,8 @@ module JsonMend
       with_depth_check do
         object = {}
 
+        @context.push(:object)
+
         loop do
           skip_whitespaces
 
@@ -214,6 +216,8 @@ module JsonMend
           # Assign the parsed pair to our object.
           object[key] = value
         end
+
+        @context.pop
 
         object
       end
@@ -1214,7 +1218,7 @@ module JsonMend
       # Check for a line comment `//...` or `#...`
       elsif @scanner.scan(%r{//|#})
         in_array = context_contain?(:array)
-        in_object = context_contain?(:object_value)
+        in_object = context_contain?(:object) || context_contain?(:object_value)
 
         pattern = if context_contain?(:object_key)
                     /[\n\r:}\]]|\\n|\\r/
@@ -1228,9 +1232,10 @@ module JsonMend
                     /[\n\r]|\\n|\\r/
                   end
 
-        if @scanner.scan_until(pattern)
+        if (text = @scanner.scan_until(pattern))
           # Un-consume the terminator so it can be handled structurally
-          @scanner.pos -= @scanner.matched.bytesize
+          terminator_size = text.end_with?('\\n', '\\r') ? 2 : 1
+          @scanner.pos -= terminator_size
         else
           @scanner.terminate
         end
