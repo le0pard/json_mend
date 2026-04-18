@@ -795,7 +795,7 @@ module JsonMend
 
         # Safely determine if the previous character was a backslash, guarding against multibyte characters
         prev_byte_idx = @scanner.pos - next_c.bytesize - 1
-        is_escaped = prev_byte_idx >= 0 && @scanner.string.getbyte(prev_byte_idx) == 92
+        is_escaped = prev_byte_idx >= 0 && @scanner.string.getbyte(prev_byte_idx) == 92 # 92 is backslash
 
         break if TERMINATORS_VALUE.include?(next_c) || (next_c == rstring_delimiter && !is_escaped)
 
