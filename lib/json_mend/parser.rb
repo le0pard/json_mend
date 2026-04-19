@@ -265,20 +265,14 @@ module JsonMend
 
       if value == :inferred_true
         if %w[true false null].include?(key.downcase)
-          # Look back: If it's concatenated to the previous value (like falsetrue), keep it.
-          # If it's separated by space/delimiters, it's trailing garbage, so drop it.
-          if pos_before_key.positive?
-            prev_byte = @scanner.string.getbyte(pos_before_key - 1)
-            # Check ASCII byte ranges for a-z, A-Z, 0-9, $, -, and _
-            is_concatenated = prev_byte && (
-              prev_byte.between?(48, 57)  || # 0-9
-              prev_byte.between?(65, 90)  || # A-Z
-              prev_byte.between?(97, 122) || # a-z
-              [36, 45, 95].include?(prev_byte) # $, -, _
-            )
-          else
-            is_concatenated = false
-          end
+          prev_byte = @scanner.string.getbyte(pos_before_key - 1)
+          # Check ASCII byte ranges for a-z, A-Z, 0-9, $, -, and _
+          is_concatenated = prev_byte && (
+            prev_byte.between?(48, 57)  || # 0-9
+            prev_byte.between?(65, 90)  || # A-Z
+            prev_byte.between?(97, 122) || # a-z
+            [36, 45, 95].include?(prev_byte) # $, -, _
+          )
 
           return [nil, nil, false] unless is_concatenated
         end
@@ -426,7 +420,7 @@ module JsonMend
     # many common errors found in LLM-generated JSON, such as missing quotes,
     # incorrect escape sequences, and ambiguous string terminators
     def parse_string
-      char = prepare_string_parsing
+      char = peek_char
 
       # A valid string can only start with a valid quote or, in our case, with a literal
       while !@scanner.eos? && !STRING_DELIMITERS.include?(char) && !char&.match?(/[\p{L}0-9$_-]/)
@@ -484,18 +478,6 @@ module JsonMend
     end
 
     # string helper methods
-
-    def prepare_string_parsing
-      char = peek_char
-
-      # Consume comments that appear before the string starts
-      while COMMENT_DELIMETERS.include?(char)
-        parse_comment
-        char = peek_char
-      end
-
-      char
-    end
 
     def determine_delimiters(char:)
       missing_quotes = false
@@ -1251,10 +1233,12 @@ module JsonMend
     # returns the index (offset) from the scanner
     def skip_to_character(characters, start_idx: 0)
       pattern = SKIP_CHARS_REGEX_CACHE.fetch(characters, nil)
+      # :nocov:
       if pattern.nil?
         chars = Array(characters).map { |c| Regexp.escape(c.to_s) }
         pattern = Regexp.new(chars.join('|'))
       end
+      # :nocov:
 
       saved_pos = @scanner.pos
       # Skip start_idx

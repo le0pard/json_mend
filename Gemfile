@@ -12,3 +12,4 @@ gem 'rspec', '~> 3'
 gem 'rubocop', '~> 1.82'
 gem 'rubocop-performance', '~> 1.26'
 gem 'rubocop-rspec', '~> 3.7'
+gem 'simplecov', require: false
