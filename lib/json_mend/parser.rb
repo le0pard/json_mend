@@ -1299,7 +1299,7 @@ module JsonMend
               (matched.length - 1) + start_idx
             else
               # No non-space found.
-              (@scanner.string.length - @scanner.charpos) + start_idx
+              @scanner.rest.length + start_idx
             end
 
       @scanner.pos = saved_pos
@@ -1329,13 +1329,12 @@ module JsonMend
     def peek_char(offset = 0)
       # Handle the common 0-offset case
       if offset.zero?
-        # returns the next BYTE
-        byte = @scanner.string.getbyte(@scanner.pos)
-        return nil unless byte
+        # peek(1) returns the next BYTE, not character
+        byte_str = @scanner.peek(1)
+        return nil if byte_str.empty?
 
         # Fast path: If it's a standard ASCII char (0-127), return it directly.
-        # Enforcing UTF-8 ensures we don't mix US-ASCII and UTF-8 strings later.
-        return byte.chr(Encoding::UTF_8) if byte < 128
+        return byte_str if byte_str.getbyte(0) < 128
 
         # Slow path: If it's a multibyte char (e.g. “), use regex to match the full character.
         return @scanner.check(/./m)
