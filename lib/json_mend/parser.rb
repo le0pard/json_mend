@@ -1299,7 +1299,7 @@ module JsonMend
               (matched.length - 1) + start_idx
             else
               # No non-space found.
-              @scanner.rest.length + start_idx
+              (@scanner.string.length - @scanner.charpos) + start_idx
             end
 
       @scanner.pos = saved_pos
