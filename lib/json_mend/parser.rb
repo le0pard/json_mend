@@ -335,7 +335,7 @@ module JsonMend
       @context.pop
 
       # If parse_json returned JSON_STOP_TOKEN (nothing found due to garbage->terminator),
-      # treat it as nil (null) for object values to be safe.
+      # treat it as empty string for object values to be safe.
       value == JSON_STOP_TOKEN ? '' : value
     end
 
