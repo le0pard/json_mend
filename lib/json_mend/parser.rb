@@ -70,7 +70,7 @@ module JsonMend
             break
           else
             # Ignore strings that look like closing braces garbage (e.g. "}", " ] ")
-            next if new_json.is_a?(String) && new_json.strip.match?(/^[}\]]+$/)
+            next if new_json.is_a?(String) && new_json.match?(/\A\s*[}\]]+\s*\z/)
 
             if both_hash?(json.last, new_json)
               json[-1] = deep_merge_hashes(json.last, new_json)
@@ -1299,7 +1299,7 @@ module JsonMend
               (matched.length - 1) + start_idx
             else
               # No non-space found.
-              @scanner.rest.length + start_idx
+              (@scanner.string.length - @scanner.charpos) + start_idx
             end
 
       @scanner.pos = saved_pos
@@ -1330,12 +1330,12 @@ module JsonMend
       # Handle the common 0-offset case
       if offset.zero?
         # peek(1) returns the next BYTE, not character
-        byte_str = @scanner.peek(1)
-        return nil if byte_str.empty?
+        byte = @scanner.string.getbyte(@scanner.pos)
+        return nil unless byte
 
         # Fast path: If it's a standard ASCII char (0-127), return it directly.
-        # This avoids the regex overhead for standard JSON characters ({, [, ", etc).
-        return byte_str if byte_str.getbyte(0) < 128
+        # Enforcing UTF-8 ensures we don't mix US-ASCII and UTF-8 strings later.
+        return byte.chr(Encoding::UTF_8) if byte < 128
 
         # Slow path: If it's a multibyte char (e.g. “), use regex to match the full character.
         return @scanner.check(/./m)
