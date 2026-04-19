@@ -1329,7 +1329,7 @@ module JsonMend
     def peek_char(offset = 0)
       # Handle the common 0-offset case
       if offset.zero?
-        # peek(1) returns the next BYTE, not character
+        # returns the next BYTE
         byte = @scanner.string.getbyte(@scanner.pos)
         return nil unless byte
 
