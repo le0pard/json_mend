@@ -87,6 +87,13 @@ RSpec.describe JsonMend do
       end
     end
 
+    context 'when provided invalid Ruby data types (non-strings)' do
+      it 'raises a TypeError', :aggregate_failures do
+        expect { described_class.repair(nil) }.to raise_error(TypeError)
+        expect { described_class.repair({ a: 1 }) }.to raise_error(TypeError)
+      end
+    end
+
     context 'when provided multiple json' do
       [
         {
@@ -352,6 +359,25 @@ RSpec.describe JsonMend do
       ].each do |test_case|
         it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do
           expect(described_class.repair(test_case[:input])).to eq(test_case[:expected_output])
+        end
+      end
+    end
+
+    context 'when provided numbers with explicit positive signs' do
+      [
+        {
+          input: '{"increase": +100}',
+          expected_output: JSON.dump({ increase: 100 }),
+          desc: 'positive integer falls back to unquoted string'
+        },
+        {
+          input: '{"offset": +3.14}',
+          expected_output: JSON.dump({ offset: 3.14 }),
+          desc: 'positive float falls back to unquoted string'
+        }
+      ].each do |tc|
+        it "repairs #{tc[:desc]}" do
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
         end
       end
     end
@@ -1633,6 +1659,63 @@ RSpec.describe JsonMend do
         expect do
           described_class.repair(duplicated_payload)
         end.to raise_error(JSON::NestingError)
+      end
+    end
+  end
+
+  context 'when provided JS-flavored non-standard numeric literals' do
+    [
+      {
+        input: '{"value": NaN, "status": "ok"}',
+        expected_output: JSON.dump({ value: 'NaN', status: 'ok' }),
+        desc: 'NaN parses safely as an unquoted string'
+      },
+      {
+        input: '{"bounds": [Infinity, -Infinity]}',
+        expected_output: JSON.dump({ bounds: %w[Infinity Infinity] }),
+        desc: 'Infinity parses safely as an unquoted string'
+      }
+    ].each do |tc|
+      it "repairs #{tc[:desc]}" do
+        expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+      end
+    end
+  end
+
+  context 'when values are completely replaced by block comments' do
+    [
+      {
+        input: '{"key": /* value omitted for brevity */ }',
+        expected_output: JSON.dump({ key: '' }),
+        desc: 'block comment acting as a missing value right before brace'
+      },
+      {
+        input: '{"k1": 1, "k2": // omitted \n, "k3": 3}',
+        expected_output: JSON.dump({ k1: 1, k2: '', k3: 3 }),
+        desc: 'line comment acting as a missing value right before comma'
+      }
+    ].each do |tc|
+      it "repairs #{tc[:desc]}" do
+        expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+      end
+    end
+  end
+
+  context 'when JSON is wrapped in HTML tags' do
+    [
+      {
+        input: '<pre><code>{"user": "admin"}</code></pre>',
+        expected_output: JSON.dump({ user: 'admin' }),
+        desc: 'JSON wrapped in standard HTML code blocks'
+      },
+      {
+        input: '<div>[1, 2, 3]</div>',
+        expected_output: JSON.dump([1, 2, 3]),
+        desc: 'JSON array wrapped in HTML div'
+      }
+    ].each do |tc|
+      it "safely repairs #{tc[:desc]}" do
+        expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
       end
     end
   end
