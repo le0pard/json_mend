@@ -160,5 +160,29 @@ RSpec.describe JsonMend::Parser do
         expect(parser2.parse).to eq({ 'key' => [1] })
       end
     end
+
+    context 'when handling tricky escape sequences directly in the Ruby fallback' do
+      it 'parses hexadecimal escapes safely' do
+        parser = described_class.new('{"key": "\x41\x42\x43"}')
+        expect(parser.parse).to eq({ 'key' => 'ABC' })
+      end
+
+      it 'preserves standard backslashes (like Windows paths) without dropping them' do
+        parser = described_class.new('{"path": "C:\Windows\System32"}')
+        expect(parser.parse).to eq({ 'path' => 'C:\Windows\System32' })
+      end
+
+      it 'preserves invalid hex escapes as literals instead of mangling them' do
+        parser = described_class.new('{"bad_hex": "val\xZZ"}')
+        expect(parser.parse).to eq({ 'bad_hex' => 'val\xZZ' })
+      end
+
+      it 'preserves unrecognized escape sequences without dropping the backslash' do
+        # The native JSON gem with allow_invalid_escape drops the '\' resulting in "Hello".
+        # JsonMend is safer and preserves the literal string.
+        parser = described_class.new('{"greeting": "Hell\o"}')
+        expect(parser.parse).to eq({ 'greeting' => 'Hell\o' })
+      end
+    end
   end
 end

@@ -691,6 +691,10 @@ RSpec.describe JsonMend do
           expected_output: 'null'
         },
         {
+          input: '["", {}, [], "valid"]',
+          expected_output: JSON.dump(['', {}, [], 'valid'])
+        },
+        {
           input: '[1, 2, 3,',
           expected_output: JSON.dump([1, 2, 3])
         },
@@ -1048,6 +1052,11 @@ RSpec.describe JsonMend do
           input: '{123: "value", true: "value"}',
           expected_output: JSON.dump({ '123' => 'value', 'true' => 'value' }),
           desc: 'literals used as unquoted keys'
+        },
+        {
+          input: '{"count": 105"next_key": 2}',
+          expected_output: JSON.dump({ 'count' => 105, 'next_key' => 2 }),
+          desc: 'missing comma between number and next key'
         }
       ].each do |tc|
         it "repairs #{tc[:desc]}" do
