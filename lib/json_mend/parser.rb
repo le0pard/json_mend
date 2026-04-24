@@ -390,9 +390,6 @@ module JsonMend
           # Handle JSON_STOP_TOKEN from parse_json (EOS or consumed terminator)
           if value == JSON_STOP_TOKEN
             # Do nothing, just skipped garbage
-          elsif strictly_empty?(value)
-            # Only consume if we didn't just hit a terminator that parse_json successfully respected
-            @scanner.getch unless value.nil? && TERMINATORS_ARRAY.include?(peek_char)
           elsif value == '...' && @scanner.string.getbyte(@scanner.pos - 1) == 46
             # just skip if the previous byte was a dot (46)
           else

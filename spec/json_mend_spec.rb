@@ -661,7 +661,7 @@ RSpec.describe JsonMend do
       [
         {
           input: '[{]',
-          expected_output: JSON.dump([])
+          expected_output: JSON.dump([{}])
         },
         {
           input: '[',
@@ -669,7 +669,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '["',
-          expected_output: JSON.dump([])
+          expected_output: JSON.dump([''])
         },
         {
           input: ']',
@@ -1239,7 +1239,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '["]\\',
-          expected_output: JSON.dump([]),
+          expected_output: JSON.dump(['']),
           desc: 'prevents negative index wraparound when checking escapes near string start'
         }
       ].each do |test_case|
@@ -1833,7 +1833,7 @@ RSpec.describe JsonMend do
       },
       {
         input: '[{,}]',
-        expected_output: JSON.dump([]),
+        expected_output: JSON.dump([{}]),
         desc: 'stray comma in single object array'
       }
     ].each do |tc|
