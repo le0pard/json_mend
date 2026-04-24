@@ -1108,6 +1108,15 @@ module JsonMend
       # Save the original length so we can safely roll back if it's completely invalid
       original_length = scanned_str.bytesize
 
+      # Handle cases where what looked like a number is actually a string.
+      # e.g. "123-abc" or "-Infinity". We exclude strings ending in a comma
+      # to preserve comma recovery logic (e.g. `105,next_key`).
+      if peek_char&.match?(/\p{L}/) && !scanned_str.end_with?(',')
+        # Roll back the entire scan and re-parse as a string.
+        @scanner.pos -= original_length
+        return parse_string
+      end
+
       # Handle cases where the number ends with one or more invalid characters.
       if !scanned_str.empty? && INVALID_NUMBER_TRAILERS.include?(scanned_str[-1])
         # Do not rewind scanner, simply discard the invalid trailing chars (garbage)

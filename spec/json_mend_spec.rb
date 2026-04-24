@@ -1687,7 +1687,7 @@ RSpec.describe JsonMend do
       },
       {
         input: '{"bounds": [Infinity, -Infinity]}',
-        expected_output: JSON.dump({ bounds: %w[Infinity Infinity] }),
+        expected_output: JSON.dump({ bounds: %w[Infinity -Infinity] }),
         desc: 'Infinity parses safely as an unquoted string'
       }
     ].each do |tc|
