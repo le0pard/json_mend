@@ -1121,12 +1121,6 @@ module JsonMend
       if !scanned_str.empty? && INVALID_NUMBER_TRAILERS.include?(scanned_str[-1])
         # Do not rewind scanner, simply discard the invalid trailing chars (garbage)
         scanned_str = scanned_str[0...-1] while !scanned_str.empty? && INVALID_NUMBER_TRAILERS.include?(scanned_str[-1])
-      # Handle cases where what looked like a number is actually a string.
-      # e.g. "123-abc"
-      elsif peek_char&.match?(/\p{L}/)
-        # Roll back the entire scan and re-parse as a string.
-        @scanner.pos -= original_length
-        return parse_string
       end
 
       # Reject non-numbers (e.g., stray periods "." or dashes "-" from LLM conversational text)
