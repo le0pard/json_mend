@@ -1108,10 +1108,10 @@ module JsonMend
       # Save the original length so we can safely roll back if it's completely invalid
       original_length = scanned_str.bytesize
 
-      # Handle cases where the number ends with an invalid character.
+      # Handle cases where the number ends with one or more invalid characters.
       if !scanned_str.empty? && INVALID_NUMBER_TRAILERS.include?(scanned_str[-1])
-        # Do not rewind scanner, simply discard the invalid trailing char (garbage)
-        scanned_str = scanned_str[0...-1]
+        # Do not rewind scanner, simply discard the invalid trailing chars (garbage)
+        scanned_str = scanned_str[0...-1] while !scanned_str.empty? && INVALID_NUMBER_TRAILERS.include?(scanned_str[-1])
       # Handle cases where what looked like a number is actually a string.
       # e.g. "123-abc"
       elsif peek_char&.match?(/\p{L}/)
@@ -1305,16 +1305,6 @@ module JsonMend
 
     def both_hash?(obj1, obj2)
       obj1.is_a?(Hash) && obj2.is_a?(Hash)
-    end
-
-    def strictly_empty?(value)
-      # Check if the value is a container AND if it's empty.
-      case value
-      when String, Array, Hash, Set
-        value.empty?
-      else
-        false
-      end
     end
 
     # Skips whitespaces

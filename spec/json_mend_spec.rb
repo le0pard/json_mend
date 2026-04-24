@@ -355,6 +355,21 @@ RSpec.describe JsonMend do
         {
           input: '[1, 2notanumber]',
           expected_output: JSON.dump([1, '2notanumber'])
+        },
+        {
+          input: '{"key": 10-e}',
+          expected_output: JSON.dump({ key: 10 }),
+          desc: 'number with multiple trailing invalid characters'
+        },
+        {
+          input: '{"key": 123e-}',
+          expected_output: JSON.dump({ key: 123 }),
+          desc: 'number with trailing exponent and minus sign'
+        },
+        {
+          input: '{"key": 456-,}',
+          expected_output: JSON.dump({ key: 456 }),
+          desc: 'number with trailing minus and comma'
         }
       ].each do |test_case|
         it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do
