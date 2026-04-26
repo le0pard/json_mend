@@ -73,7 +73,7 @@ module JsonMend
             # Ignore strings that look like closing braces garbage (e.g. "}", " ] ")
             next if new_json.is_a?(String) && new_json.match?(/\A\s*[}\]]+\s*\z/)
 
-            if both_hash?(json.last, new_json)
+            if json.last.is_a?(Hash) && new_json.is_a?(Hash)
               json[-1] = deep_merge_hashes(json.last, new_json)
             else
               json << new_json
@@ -1287,10 +1287,6 @@ module JsonMend
 
       @scanner.pos = saved_pos
       res
-    end
-
-    def both_hash?(obj1, obj2)
-      obj1.is_a?(Hash) && obj2.is_a?(Hash)
     end
 
     # Skips whitespaces
