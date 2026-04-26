@@ -1265,6 +1265,21 @@ RSpec.describe JsonMend do
           input: '["]\\',
           expected_output: JSON.dump(['']),
           desc: 'prevents negative index wraparound when checking escapes near string start'
+        },
+        {
+          input: '{"a": -456---}',
+          expected_output: JSON.dump({ a: -456 }),
+          desc: 'removes multiple trailing invalid characters (e.g., "---")'
+        },
+        {
+          input: "{a: 123#{'-' * 5000}}",
+          expected_output: JSON.dump({ a: 123 }),
+          desc: 'strips long LLM-generated garbage after numbers)'
+        },
+        {
+          input: '{"a": 42e-}',
+          expected_output: JSON.dump({ a: 42 }),
+          desc: 'handles string-wrapped numbers'
         }
       ].each do |test_case|
         it "repairs #{test_case[:desc]}" do

@@ -44,6 +44,7 @@ module JsonMend
     # Pre-compile regexes for performance
     NUMBER_REGEX = /[#{Regexp.escape(NUMBER_CHARS.to_a.join)}]+/
     NUMBER_NO_COMMA_REGEX = /[#{Regexp.escape(NUMBER_CHARS.dup.tap { |s| s.delete(',') }.to_a.join)}]+/
+    INVALID_NUMBER_TRAILERS_REGEX = /[#{Regexp.union(*INVALID_NUMBER_TRAILERS)}]+\z/
 
     def initialize(json_string)
       @scanner = StringScanner.new(json_string)
@@ -1118,9 +1119,9 @@ module JsonMend
       end
 
       # Handle cases where the number ends with one or more invalid characters.
-      if !scanned_str.empty? && INVALID_NUMBER_TRAILERS.include?(scanned_str[-1])
+      if !scanned_str.empty? && scanned_str.match?(INVALID_NUMBER_TRAILERS_REGEX)
         # Do not rewind scanner, simply discard the invalid trailing chars (garbage)
-        scanned_str = scanned_str[0...-1] while !scanned_str.empty? && INVALID_NUMBER_TRAILERS.include?(scanned_str[-1])
+        scanned_str.sub!(INVALID_NUMBER_TRAILERS_REGEX, '')
       end
 
       # Reject non-numbers (e.g., stray periods "." or dashes "-" from LLM conversational text)
