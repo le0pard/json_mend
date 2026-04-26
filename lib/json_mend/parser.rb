@@ -45,6 +45,10 @@ module JsonMend
     NUMBER_REGEX = /[#{Regexp.escape(NUMBER_CHARS.to_a.join)}]+/
     NUMBER_NO_COMMA_REGEX = /[#{Regexp.escape(NUMBER_CHARS.dup.tap { |s| s.delete(',') }.to_a.join)}]+/
     INVALID_NUMBER_TRAILERS_REGEX = /[#{Regexp.union(*INVALID_NUMBER_TRAILERS)}]+\z/
+    HEX_ESCAPE_REGEXES = {
+      'u' => /[0-9a-fA-F]{4}/,
+      'x' => /[0-9a-fA-F]{2}/
+    }.freeze
 
     def initialize(json_string)
       @scanner = StringScanner.new(json_string)
@@ -951,10 +955,10 @@ module JsonMend
           entry_pos = @scanner.pos
           @scanner.getch # consume 'u' or 'x'
 
-          num_chars = (char == 'u' ? 4 : 2)
+          hex_regex = HEX_ESCAPE_REGEXES.fetch(char)
 
           # Validate valid hex digits
-          if (hex_str = @scanner.scan(/[0-9a-fA-F]{#{num_chars}}/))
+          if (hex_str = @scanner.scan(hex_regex))
             string_parts.pop
             hex_val = hex_str.to_i(16)
 
