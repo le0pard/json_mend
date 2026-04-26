@@ -397,11 +397,8 @@ module JsonMend
             arr << value
           end
 
+          @scanner.skip(/[\s,]+/)
           char = peek_char
-          while char && char != ']' && (char.match?(/\s/) || char == ',')
-            @scanner.getch
-            char = peek_char
-          end
         end
 
         # Handle a potentially missing closing bracket, a common LLM error.
@@ -920,13 +917,7 @@ module JsonMend
           rstring_delimiter_missing = false
         elsif peek_char(j)
           # Check for an unmatched opening brace in string_parts
-          string_parts.reverse_each do |c|
-            next unless c == '{'
-
-            # Ok then this is part of the string
-            rstring_delimiter_missing = false
-            break
-          end
+          rstring_delimiter_missing = false if string_parts.include?('{')
         end
 
       end
@@ -961,20 +952,11 @@ module JsonMend
           @scanner.getch # consume 'u' or 'x'
 
           num_chars = (char == 'u' ? 4 : 2)
-          hex_parts = []
-
-          # Use getch in loop to correctly extract chars (handling multibyte)
-          num_chars.times do
-            c = @scanner.getch
-            break unless c
-
-            hex_parts << c
-          end
 
           # Validate valid hex digits
-          if hex_parts.length == num_chars && hex_parts.all? { |c| c.match?(/[0-9a-fA-F]/) }
+          if (hex_str = @scanner.scan(/[0-9a-fA-F]{#{num_chars}}/))
             string_parts.pop
-            hex_val = hex_parts.join.to_i(16)
+            hex_val = hex_str.to_i(16)
 
             if char == 'u' && hex_val.between?(0xD800, 0xDBFF)
               # Handle high surrogate pair
