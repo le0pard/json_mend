@@ -1,7 +1,9 @@
 name: Push gem to RubyGems.org
 
 on:
-  workflow_dispatch:
+  push:
+    tags:
+      - *
 
 permissions:
   id-token: write
