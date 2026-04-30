@@ -556,7 +556,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"": "value"',
-          expected_output: JSON.dump({ "": 'value' })
+          expected_output: JSON.dump({ '': 'value' }) # rubocop:disable Naming/VariableNumber
         },
         {
           input: '{"value_1": true, COMMENT "value_2": "data"}',
@@ -568,7 +568,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"" : true, "key2": "value2"}',
-          expected_output: JSON.dump({ "": true, key2: 'value2' })
+          expected_output: JSON.dump({ '': true, key2: 'value2' }) # rubocop:disable Naming/VariableNumber
         },
         {
           input: '{"words": abcdef", "numbers": 12345", "words2": ghijkl" }',

@@ -1,9 +1,18 @@
+inherit_mode:
+  merge:
+    - Exclude
+
 plugins:
   - rubocop-performance
   - rubocop-rspec
+  - rubocop-rake
 
 AllCops:
   NewCops: enable
+  ParserEngine: parser_prism
+  CacheRootDirectory: .rubocop_cache
+  MaxFilesInCache: 8000
+  UseCache: false
   SuggestExtensions: false
 
 Metrics/AbcSize:
