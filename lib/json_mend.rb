@@ -15,21 +15,22 @@ module JsonMend
     # @return [Object, String] The repaired JSON object or string.
     def repair(json_string, return_objects: false)
       # First, attempt to parse the string with the standard library.
-      repaired_json = begin
+      begin
         parsed = JSON.parse(
           json_string,
           allow_trailing_comma: true,
           allow_control_characters: true
         )
 
-        # Verify the native parser didn't produce invalid UTF-8 (like unpaired surrogates)
-        # by ensuring it can safely dump its own output.
-        JSON.generate(parsed)
+        # If the user wants objects, return them immediately
+        return parsed if return_objects
 
-        parsed
+        # Otherwise, generate the string once. This acts as both the
+        # UTF-8 verification step AND the final string output.
+        return JSON.generate(parsed)
       rescue JSON::ParserError, JSON::GeneratorError
         parser = Parser.new(json_string)
-        parser.parse
+        repaired_json = parser.parse
       end
 
       # Avoids returning `null` for empty results, returns the object directly
