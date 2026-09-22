@@ -1329,7 +1329,7 @@ module JsonMend
     end
 
     def context_contain?(value)
-      @context_counts[value].positive?
+      @context_counts.fetch(value, 0).positive?
     end
 
     # Checks if the character signifies the start of a string or literal
