@@ -1700,6 +1700,93 @@ RSpec.describe JsonMend do
         end.to raise_error(JSON::NestingError)
       end
     end
+
+    context 'when checking String vs Array optimization nil gotchas at EOF' do
+      [
+        {
+          input: '   ',
+          expected_output: 'null',
+          desc: 'EOF after spaces (tests string_start? and number_start? nil guards)'
+        },
+        {
+          input: '[  ',
+          expected_output: JSON.dump([]),
+          desc: 'EOF inside array (tests parse_array STRING_DELIMITERS nil guard)'
+        },
+        {
+          input: '{"key": "value ',
+          expected_output: JSON.dump({ 'key' => 'value ' }),
+          desc: 'EOF inside unclosed string (tests complex delimiter action nil guards)'
+        },
+        {
+          input: '{"key": unquoted_at_eof',
+          expected_output: JSON.dump({ 'key' => 'unquoted_at_eof' }),
+          desc: 'EOF inside unquoted value (tests context_termination_reached? nil guards)'
+        },
+        {
+          input: '{"":',
+          expected_output: JSON.dump({ '' => '' }),
+          desc: 'EOF after colon (tests peek_char nil guard inside handle_doubled_quotes)'
+        },
+        {
+          input: '[1, ',
+          expected_output: JSON.dump([1]),
+          desc: 'EOF trailing comma in array (tests array terminator nil guard)'
+        }
+      ].each do |tc|
+        it "safely repairs #{tc[:desc]} without raising TypeError or NoMethodError" do
+          # First, ensure it doesn't crash
+          expect { described_class.repair(tc[:input]) }.not_to raise_error
+
+          # Second, ensure it successfully recovered
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end
+      end
+    end
+
+    context 'when evaluating String vs Array optimization nil gotchas at EOF' do
+      [
+        {
+          input: '   ',
+          expected_output: 'null',
+          desc: 'EOF after spaces (tests string_start? and number_start? nil guards)'
+        },
+        {
+          input: '[  ',
+          expected_output: JSON.dump([]),
+          desc: 'EOF inside array (tests parse_array STRING_DELIMITERS nil guard)'
+        },
+        {
+          input: '{"key": "value ',
+          expected_output: JSON.dump({ 'key' => 'value ' }),
+          desc: 'EOF inside unclosed string (tests complex delimiter action nil guards)'
+        },
+        {
+          input: '{"key": unquoted_at_eof',
+          expected_output: JSON.dump({ 'key' => 'unquoted_at_eof' }),
+          desc: 'EOF inside unquoted value (tests context_termination_reached? nil guards)'
+        },
+        {
+          input: '{"":',
+          expected_output: JSON.dump({ '' => '' }),
+          desc: 'EOF after colon (tests peek_char nil guard inside handle_doubled_quotes)'
+        },
+        {
+          # Triggers check_unmatched_in_array where the unmatched quote is the very last character
+          input: '["a"b"',
+          expected_output: JSON.dump(["a\"b\""]),
+          desc: 'EOF immediately following a secondary quote in an array (tests check_unmatched_in_array nil guard)'
+        }
+      ].each do |tc|
+        it "safely repairs #{tc[:desc]} without raising TypeError or NoMethodError" do
+          # 1. Guarantee it does not crash
+          expect { described_class.repair(tc[:input]) }.not_to raise_error
+
+          # 2. Guarantee it successfully recovered
+          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
+        end
+      end
+    end
   end
 
   context 'when provided JS-flavored non-standard numeric literals' do
@@ -1919,36 +2006,36 @@ RSpec.describe JsonMend do
         end.not_to raise_error
       end
     end
+  end
 
-    context 'when handling invisible non-breaking spaces' do
-      it 'successfully recovers from JSON containing \xC2\xA0' do
-        # The broken JSON payload with \xC2\xA0 (non-breaking spaces)
-        broken_json = '{ ' \
-          "\xC2\xA0\"borrower_first_name\": \"Jane\", " \
-          "\xC2\xA0\"borrower_last_name\": \"Doe\", " \
-          "\xC2\xA0\"borrower_home_phone\": \"5555550199\", " \
-          "\xC2\xA0\"borrower_email\": \"jane.doe@example.com\", " \
-          "\xC2\xA0\"loan_amount\": \"748217.00\", " \
-          "\xC2\xA0\"active\": true " \
-        '}'
+  context 'when handling invisible non-breaking spaces' do
+    it 'successfully recovers from JSON containing \xC2\xA0' do
+      # The broken JSON payload with \xC2\xA0 (non-breaking spaces)
+      broken_json = '{ ' \
+        "\xC2\xA0\"borrower_first_name\": \"Jane\", " \
+        "\xC2\xA0\"borrower_last_name\": \"Doe\", " \
+        "\xC2\xA0\"borrower_home_phone\": \"5555550199\", " \
+        "\xC2\xA0\"borrower_email\": \"jane.doe@example.com\", " \
+        "\xC2\xA0\"loan_amount\": \"748217.00\", " \
+        "\xC2\xA0\"active\": true " \
+      '}'
 
-        expected_hash = {
-          "borrower_first_name" => "Jane",
-          "borrower_last_name" => "Doe",
-          "borrower_home_phone" => "5555550199",
-          "borrower_email" => "jane.doe@example.com",
-          "loan_amount" => "748217.00",
-          "active" => true
-        }
+      expected_hash = {
+        "borrower_first_name" => "Jane",
+        "borrower_last_name" => "Doe",
+        "borrower_home_phone" => "5555550199",
+        "borrower_email" => "jane.doe@example.com",
+        "loan_amount" => "748217.00",
+        "active" => true
+      }
 
-        # Test string output
-        repaired_string = described_class.repair(broken_json)
-        expect(repaired_string).to eq(JSON.dump(expected_hash))
+      # Test string output
+      repaired_string = described_class.repair(broken_json)
+      expect(repaired_string).to eq(JSON.dump(expected_hash))
 
-        # Test object output
-        repaired_object = described_class.repair(broken_json, return_objects: true)
-        expect(repaired_object).to eq(expected_hash)
-      end
+      # Test object output
+      repaired_object = described_class.repair(broken_json, return_objects: true)
+      expect(repaired_object).to eq(expected_hash)
     end
   end
 end
