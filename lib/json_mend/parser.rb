@@ -253,17 +253,6 @@ module JsonMend
       # If we get an empty key and the next character is a closing brace, we're done.
       return [nil, nil, false] if key.empty? && (peek_char.nil? || peek_char == '}' || @scanner.pos == pos_before_key)
 
-      # Handle Duplicate Keys (Safer Method)
-      # This is a critical repair for lists of objects missing a comma separator.
-      if object.key?(key)
-        # Instead of rewriting the string, we safely rewind the scanner to the
-        # position before the duplicate key. This ends the parsing of the current
-        # object, allowing the top-level parser to see the duplicate key as the
-        # start of a new JSON object.
-        @scanner.pos = pos_before_key
-        return [nil, nil, false] # Signal to stop parsing this object.
-      end
-
       # Parse the Separator (:)
       skip_whitespaces
       colon_found = @scanner.skip(/:/) # Leniently skip the colon if it exists.

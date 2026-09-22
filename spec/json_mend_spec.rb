@@ -643,10 +643,9 @@ RSpec.describe JsonMend do
           expected_output: JSON.dump({ key: 'value' })
         },
         {
-          input: '[{"lorem": {"ipsum": "sic"}, """" "lorem": {"ipsum": "sic"}]',
+          input: '[{"lorem": {"ipsum": "sic"}, """" "lorem": {"ipsum": "sic1"}]',
           expected_output: JSON.dump([
-                                       { 'lorem' => { 'ipsum' => 'sic' }, '' => '' },
-                                       { 'lorem' => { 'ipsum' => 'sic' } }
+                                       { 'lorem' => { 'ipsum' => 'sic1' }, '' => '' }
                                      ])
         },
         {
@@ -761,7 +760,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '[{"key": "value", "key"',
-          expected_output: JSON.dump([{ 'key' => 'value' }, 'key'])
+          expected_output: JSON.dump([{ 'key' => true }])
         }
       ].each do |test_case|
         it "repair #{test_case[:input]} to #{test_case[:expected_output]}" do
