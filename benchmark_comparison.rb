@@ -33,6 +33,16 @@ TEST_CASES = {
     label: 'Valid Single JSON',
     input: json_object
   },
+  return_objects: {
+    label: 'Valid JSON (Return Ruby Objects)',
+    input: json_object,
+    return_objects: true
+  },
+  generator_error: {
+    label: 'Valid Syntax but Invalid UTF-8 (GeneratorError)',
+    input: "{\"status\": \"ok\", \"data\": \"bad\xFFbyte\"}",
+    return_objects: true
+  },
   concatenated: {
     label: 'Concatenated JSON (x10)',
     input: json_object * 10
@@ -116,13 +126,18 @@ TEST_CASES.each_value do |data|
   puts "\n\n🔸 Scenario: #{data[:label]}"
   puts '-' * 40
 
+  # Check if this specific test requires returning objects instead of a string
+  return_objs = data.fetch(:return_objects, false)
+
   Benchmark.ips do |x|
     x.config(time: 2, warmup: 1) # Short duration for quick checks
 
     # 1. JsonMend
-    if supported?(->(i) { JsonMend.repair(i) }, data[:input])
+    mend_proc = ->(i) { JsonMend.repair(i, return_objects: return_objs) }
+
+    if supported?(mend_proc, data[:input])
       x.report('JsonMend') do
-        JsonMend.repair(data[:input])
+        JsonMend.repair(data[:input], return_objects: return_objs)
       end
     else
       puts '   JsonMend: ❌ Not Supported'
@@ -130,9 +145,12 @@ TEST_CASES.each_value do |data|
 
     # 2. json-repair
     if defined?(JSON::Repair)
-      if supported?(->(i) { JSON.repair(i) }, data[:input])
+      # For a fair comparison, if return_objects is true, json-repair must also parse its own output
+      repair_proc = ->(i) { return_objs ? JSON.parse(JSON.repair(i)) : JSON.repair(i) }
+
+      if supported?(repair_proc, data[:input])
         x.report('json-repair') do
-          JSON.repair(data[:input])
+          return_objs ? JSON.parse(JSON.repair(data[:input])) : JSON.repair(data[:input])
         end
       else
         puts '   json-repair: ❌ Not Supported'

@@ -7,9 +7,9 @@ module JsonMend
   # The core parser that does the heavy lifting of fixing the JSON
   class Parser
     MAX_ALLOWED_DEPTH = 100
-    COMMENT_DELIMETERS = '#/'.freeze
+    COMMENT_DELIMETERS = '#/'
     NUMBER_CHARS = Set.new('0123456789-.eE/,_'.chars).freeze
-    STRING_DELIMITERS = "\"'“”".freeze
+    STRING_DELIMITERS = "\"'“”"
     SKIP_CHARS_REGEX_CACHE = {
       '"' => /"/,
       "'" => /'/,
@@ -28,12 +28,12 @@ module JsonMend
     JSON_STOP_TOKEN = :json_mend_stop_token
 
     # Optimized constants for performance (CollectionLiteralInLoop)
-    TERMINATORS_ARRAY = "]}".freeze
-    TERMINATORS_OBJECT_KEY = ":}".freeze
-    TERMINATORS_OBJECT_VALUE = ",}".freeze
-    TERMINATORS_ARRAY_ITEM = ",]".freeze
-    TERMINATORS_STRING_GUESSED = "{}[],:".freeze
-    TERMINATORS_VALUE = ",]}".freeze
+    TERMINATORS_ARRAY = [']', '}'].freeze
+    TERMINATORS_OBJECT_KEY = ':}'
+    TERMINATORS_OBJECT_VALUE = ',}'
+    TERMINATORS_ARRAY_ITEM = [',', ']'].freeze
+    TERMINATORS_STRING_GUESSED = '{}[],:'
+    TERMINATORS_VALUE = ',]}'
     STRING_OR_OBJECT_START = "#{STRING_DELIMITERS}{[".freeze
     SKIPPED_KEYS = %i[merged_array stray_colon].freeze
     BOOLEAN_OR_NULL_CHARS = %w[t f n].freeze
@@ -716,7 +716,7 @@ module JsonMend
 
         # If we are in an object context, let's check for the right delimiters
         if (context_contain?(:object) && next_c && TERMINATORS_OBJECT_KEY.include?(next_c)) ||
-           (context_contain?(:array) && next_c && TERMINATORS_ARRAY_ITEM.include?(next_c)) ||
+           (context_contain?(:array) && TERMINATORS_ARRAY_ITEM.include?(next_c)) ||
            (
              check_comma_in_object_value &&
              current_context?(:object_value) &&
@@ -1055,7 +1055,7 @@ module JsonMend
       return false unless missing_quotes
 
       if current_context?(:object_key)
-        return true if char == ':' || (char && (char.match?(/\s/) || TERMINATORS_ARRAY.include?(char)))
+        return true if char == ':' || char.match?(/\s/) || TERMINATORS_ARRAY.include?(char)
 
         if char == ','
           # Break on comma UNLESS it looks like part of a number format (e.g., 105,12)
@@ -1069,7 +1069,7 @@ module JsonMend
         end
       end
 
-      return true if current_context?(:array) && char && TERMINATORS_ARRAY_ITEM.include?(char)
+      return true if current_context?(:array) && TERMINATORS_ARRAY_ITEM.include?(char)
 
       false
     end
@@ -1329,7 +1329,7 @@ module JsonMend
     end
 
     def context_contain?(value)
-      @context_counts[value] > 0
+      @context_counts[value].positive?
     end
 
     # Checks if the character signifies the start of a string or literal

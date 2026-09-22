@@ -556,7 +556,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"": "value"',
-          expected_output: JSON.dump({ '': 'value' }) # rubocop:disable Naming/VariableNumber
+          expected_output: JSON.dump({ '': 'value' })
         },
         {
           input: '{"value_1": true, COMMENT "value_2": "data"}',
@@ -568,7 +568,7 @@ RSpec.describe JsonMend do
         },
         {
           input: '{"" : true, "key2": "value2"}',
-          expected_output: JSON.dump({ '': true, key2: 'value2' }) # rubocop:disable Naming/VariableNumber
+          expected_output: JSON.dump({ '': true, key2: 'value2' })
         },
         {
           input: '{"words": abcdef", "numbers": 12345", "words2": ghijkl" }',
@@ -1732,20 +1732,7 @@ RSpec.describe JsonMend do
           input: '[1, ',
           expected_output: JSON.dump([1]),
           desc: 'EOF trailing comma in array (tests array terminator nil guard)'
-        }
-      ].each do |tc|
-        it "safely repairs #{tc[:desc]} without raising TypeError or NoMethodError" do
-          # First, ensure it doesn't crash
-          expect { described_class.repair(tc[:input]) }.not_to raise_error
-
-          # Second, ensure it successfully recovered
-          expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
-        end
-      end
-    end
-
-    context 'when evaluating String vs Array optimization nil gotchas at EOF' do
-      [
+        },
         {
           input: '   ',
           expected_output: 'null',
@@ -1774,15 +1761,15 @@ RSpec.describe JsonMend do
         {
           # Triggers check_unmatched_in_array where the unmatched quote is the very last character
           input: '["a"b"',
-          expected_output: JSON.dump(["a\"b\""]),
+          expected_output: JSON.dump(['a"b"']),
           desc: 'EOF immediately following a secondary quote in an array (tests check_unmatched_in_array nil guard)'
         }
       ].each do |tc|
-        it "safely repairs #{tc[:desc]} without raising TypeError or NoMethodError" do
-          # 1. Guarantee it does not crash
+        it "safely repairs #{tc[:desc]} without raising TypeError or NoMethodError", :aggregate_failures do
+          # First, ensure it doesn't crash
           expect { described_class.repair(tc[:input]) }.not_to raise_error
 
-          # 2. Guarantee it successfully recovered
+          # Second, ensure it successfully recovered
           expect(described_class.repair(tc[:input])).to eq(tc[:expected_output])
         end
       end
@@ -2009,26 +1996,29 @@ RSpec.describe JsonMend do
   end
 
   context 'when handling invisible non-breaking spaces' do
-    it 'successfully recovers from JSON containing \xC2\xA0' do
-      # The broken JSON payload with \xC2\xA0 (non-breaking spaces)
-      broken_json = '{ ' \
+    # The broken JSON payload with \xC2\xA0 (non-breaking spaces)
+    let(:broken_json) do
+      '{ ' \
         "\xC2\xA0\"borrower_first_name\": \"Jane\", " \
         "\xC2\xA0\"borrower_last_name\": \"Doe\", " \
         "\xC2\xA0\"borrower_home_phone\": \"5555550199\", " \
         "\xC2\xA0\"borrower_email\": \"jane.doe@example.com\", " \
         "\xC2\xA0\"loan_amount\": \"748217.00\", " \
         "\xC2\xA0\"active\": true " \
-      '}'
-
-      expected_hash = {
-        "borrower_first_name" => "Jane",
-        "borrower_last_name" => "Doe",
-        "borrower_home_phone" => "5555550199",
-        "borrower_email" => "jane.doe@example.com",
-        "loan_amount" => "748217.00",
-        "active" => true
+        '}'
+    end
+    let(:expected_hash) do
+      {
+        'borrower_first_name' => 'Jane',
+        'borrower_last_name' => 'Doe',
+        'borrower_home_phone' => '5555550199',
+        'borrower_email' => 'jane.doe@example.com',
+        'loan_amount' => '748217.00',
+        'active' => true
       }
+    end
 
+    it 'successfully recovers from JSON containing \xC2\xA0', :aggregate_failures do
       # Test string output
       repaired_string = described_class.repair(broken_json)
       expect(repaired_string).to eq(JSON.dump(expected_hash))
