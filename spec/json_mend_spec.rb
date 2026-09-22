@@ -1919,5 +1919,36 @@ RSpec.describe JsonMend do
         end.not_to raise_error
       end
     end
+
+    context 'when handling invisible non-breaking spaces' do
+      it 'successfully recovers from JSON containing \xC2\xA0' do
+        # The broken JSON payload with \xC2\xA0 (non-breaking spaces)
+        broken_json = '{ ' \
+          "\xC2\xA0\"borrower_first_name\": \"Jane\", " \
+          "\xC2\xA0\"borrower_last_name\": \"Doe\", " \
+          "\xC2\xA0\"borrower_home_phone\": \"5555550199\", " \
+          "\xC2\xA0\"borrower_email\": \"jane.doe@example.com\", " \
+          "\xC2\xA0\"loan_amount\": \"748217.00\", " \
+          "\xC2\xA0\"active\": true " \
+        '}'
+
+        expected_hash = {
+          "borrower_first_name" => "Jane",
+          "borrower_last_name" => "Doe",
+          "borrower_home_phone" => "5555550199",
+          "borrower_email" => "jane.doe@example.com",
+          "loan_amount" => "748217.00",
+          "active" => true
+        }
+
+        # Test string output
+        repaired_string = described_class.repair(broken_json)
+        expect(repaired_string).to eq(JSON.dump(expected_hash))
+
+        # Test object output
+        repaired_object = described_class.repair(broken_json, return_objects: true)
+        expect(repaired_object).to eq(expected_hash)
+      end
+    end
   end
 end
